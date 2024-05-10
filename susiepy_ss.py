@@ -1,6 +1,5 @@
 import numpy as np
 from tqdm import tqdm
-import scipy.stats as stats
 import scipy.linalg as la
 import time
 import sys
@@ -12,7 +11,7 @@ from scipy.optimize import minimize_scalar
 from scipy.optimize import minimize
 
 
-class S:
+class S: 
     def __init__(
             self, pop_sizes, L, XTX_list, scaled_prior_variance, 
             residual_variance, varY, prior_weights, float_type = np.float64):
@@ -52,7 +51,7 @@ def susie_multi_rss(
     b_list,
     s_list,
     R_list,
-    YTY_list,
+    varY_list,
     rho,
     population_sizes,
     L = 10,
@@ -63,7 +62,7 @@ def susie_multi_rss(
     estimate_residual_variance=True,
     estimate_prior_variance=True,
     estimate_prior_method='early_EM',
-    pop_spec_effect_priors = False,
+    pop_spec_effect_priors = True,
     iter_before_zeroing_effects = 5,
     prior_tol=1e-9,
     max_iter=100,
@@ -73,8 +72,9 @@ def susie_multi_rss(
     min_abs_corr = 0,
     float_type = np.float32,
     low_memory_mode = False,
+    recover_R = False,
     mac_filter = 20,
-    maf_filter = 0
+    maf_filter = 0,
     ):
     """ Top-level function for running MultiSuSiE 
 
@@ -89,8 +89,8 @@ def susie_multi_rss(
         standard errors, one for each population
     R_list: length K list of PxP numpy arrays representing the LD correlation 
         matrices for each population
-    YTY_list: length K list of P-array representing the sum of squares of the 
-        outcome, one for each population
+    varY_list: length K list representing the sample variance of the outcome
+        in each population
     rho: PxP numpy array representing the effect size correlation matrix
     population_sizes: list of integers representing the number of samples in
         the GWAS for each population
@@ -100,7 +100,7 @@ def susie_multi_rss(
     prior_weights: numpy P-array of floats representing the prior probability
         of causality for each variant. Give None to use a uniform prior
     standardize: boolean, whether to adjust summmary statistics to be as if 
-        genotypes and phenotypes were standardized to have mean 0 and variance 1
+        genotypes were standardized to have mean 0 and variance 1
     pop_spec_standardization: boolean, if standardize is True, whether to 
         adjust summary statistics to be as if genotypes were standardized
         separately for each population, or pooled and then standardized
@@ -124,12 +124,18 @@ def susie_multi_rss(
     verbose: boolean which indicates if an progress bar should be displayed
     coverage: float representing the minimum coverage of credible sets
     min_abs_corr: float representing the minimum absolute correlation between
-        any pair of variants in a credible set
+        any pair of variants in a credible set. For each pair of variants,
+        the max is taken across ancestries. In the case where min_abs_corr = 0,
+        low_memory_mode = True, and recover_R = False, the purity of credible
+        sets will not be calculated. 
     float_type: numpy float type used. Set to np.float32 to minimize memory
         consumption
     low_memory_mode: boolean, if True, the input R_list will be modified in place.
-        Decreases memory consumption by a factor of two. BUT, THE INPUT R_LIST
-        WILL BE OVERWRITTEN
+        Decreases memory consumption by a factor of two. BUT, THE INPUT R_list
+        WILL BE OVERWRITTEN. If you need R_list, set low_memory_mode to False
+    recover_R: boolean, if True, the R matrices will be recovered from XTX, 
+        BUT variants with MAC/MAF estimate less than mac_filter/maf_filter will
+        be censored. 
     mac_filter: float, if a variant has less than mac_filter minor alleles in a 
         population it will be censored in that population, but will still be 
         included with other populations. minor allele count is estimated under 
@@ -142,32 +148,79 @@ def susie_multi_rss(
     
     Returns
     -------
-    s: a S object containing the results of the MultiSuSiE run
+    an object containing results with the following attributes:
+        alpha: L x P numpy array of single-effect regression posterior 
+            inclusion probabilities
+        mu: K x L x P numpy array of single-effect regression effect size
+            posterior means, conditional on each variant being the causal variant
+        mu2: K x K x L x P numpy array of single-effect regression effect size
+            posterior seconds moments, conditional on each variant being the 
+            causal variant
+        sigma2: length-K numpy array of residual variance estimates
+        pi: length-P numpy array of prior inclusion probabilities
+        n: length-K numpy array of sample sizes
+        L: integer representing the maximum number of causal variants
+        V: K x L numpy array of effect size prior variance estimates
+        ER2: length-K numpy array of expected squared residuals
+        KL: L x 1 numpy array of Kullback-Leibler divergences for each single
+            effect regression
+        lbf: L x 1 numpy array of log Bayes factors for each single effect 
+            regression
+        converged: boolean indicating whether the algorithm converged
 
     TODO
     ----
-        - reparameterize to take variance of Y, not YTY
-        - Match SuSiER output
+        - think about consequences of standardizing Y
+        - Turn this into a package. Will probably have to figure out how to 
+          deal with paths and imports. 
+        - Add documentation throughout
+        - Add command line interface?
+        - Add tests, probably based on tests used for SuSiER
+        - Make defaults match between sufficient statistic and summary statistic
+          functions
     """
 
-    if not low_memory_mode:
-        R_list = [np.copy(R) for R in R_list]
-        
-    XTX_list = []
-    XTY_list = []
+
+    if low_memory_mode:
+        R_list_copy = R_list
+        print('low memory mode is on. THE INPUT R MATRICES HAVE BEEN ' + \
+            'TRANSFORMED INTO XTX AND CENSORED BASED ON MISSINGNESS. ' + \
+            'THE INPUT R MATRICES HAVE BEEN CHANGED.')
+    else:
+        R_list_copy = [np.copy(R) for R in R_list]
 
     for i in range(len(b_list)):
-        XTX,XTY = recover_XTX_and_XTY(
-            b_list[i],
-            s_list[i],
-            R_list[i],
-            YTY_list[i],
-            population_sizes[i],
+        if b_list[i].dtype != float_type:
+            b_list[i] = b_list[i].astype(float_type, copy = not low_memory_mode)
+        if s_list[i].dtype != float_type:
+            s_list[i] = s_list[i].astype(float_type, copy = not low_memory_mode)
+        if R_list_copy[i].dtype != float_type:
+            R_list_copy[i] = R_list_copy[i].astype(float_type, copy = not low_memory_mode)
+        if rho.dtype != float_type:
+            rho = rho.astype(float_type)
+        varY_list = np.array(varY_list, dtype = float_type)
+
+
+    XTX_list = []
+    XTY_list = []
+    YTY_list = []
+
+    for i in range(len(b_list)):
+        YTY = varY_list[i] * (population_sizes[i] - 1)
+        XTX, XTY, n_censored = recover_XTX_and_XTY(
+            b = b_list[i],
+            s = s_list[i],
+            R = R_list_copy[i],
+            YTY = YTY,
+            n = population_sizes[i],
             mac_filter = mac_filter,
             maf_filter = maf_filter
         )
         XTX_list.append(XTX)
         XTY_list.append(XTY)
+        YTY_list.append(YTY)
+        if n_censored > 0:
+            print('censored %d variants in population %d'%(n_censored, i))
 
 
     return susie_multi_ss(
@@ -176,7 +229,7 @@ def susie_multi_rss(
         YTY_list = YTY_list, 
         rho = rho, 
         population_sizes = population_sizes,
-        L = L,
+        L = L, 
         scaled_prior_variance = scaled_prior_variance,
         prior_weights = prior_weights,
         standardize = standardize,
@@ -192,11 +245,13 @@ def susie_multi_rss(
         pop_spec_effect_priors = pop_spec_effect_priors,
         R_list = R_list,
         coverage = coverage,
-        min_abs_corr = .5,
+        min_abs_corr = min_abs_corr,
         float_type = float_type,
-        low_memory_mode = low_memory_mode
+        low_memory_mode = low_memory_mode,
+        recover_R = recover_R
     )
 
+# THIS FUNCTION MUTATES INPUT R. BE CAREFUL
 def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
     sigma2 = YTY / ((b / s) ** 2 + n - 2)
     XTY = np.nan_to_num(sigma2 * b / (s ** 2))
@@ -213,10 +268,7 @@ def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
     R[:, mask] = 0
     XTY[mask] = 0
 
-    if np.sum(mask) > 0:
-        print(f'Censored summary statistics for {np.sum(mask)} variants with low minor allele count')
-
-    return(R, XTY)
+    return(R, XTY, np.sum(mask))
 
 def susie_multi_ss(
     XTX_list, XTY_list, YTY_list,
@@ -230,7 +282,7 @@ def susie_multi_ss(
     estimate_residual_variance=True,
     estimate_prior_variance=True,
     estimate_prior_method='early_EM',
-    pop_spec_effect_priors = False,
+    pop_spec_effect_priors = True,
     iter_before_zeroing_effects = 5,
     prior_tol=1e-9,
     max_iter=100,
@@ -239,8 +291,9 @@ def susie_multi_ss(
     R_list = None,
     coverage = .95,
     min_abs_corr = .5,
-    float_type = np.float64,
-    low_memory_mode = False
+    float_type = np.float32,
+    low_memory_mode = False,
+    recover_R = False
     ):
 
     #check input
@@ -285,6 +338,7 @@ def susie_multi_ss(
     
     #init setup
     p = XTX_list[0].shape[1]
+
     varY = np.array([YTY/(n-1) for (YTY, n) in zip(YTY_list, population_sizes)])
     varY_pooled = np.sum(YTY_list) / (np.sum(population_sizes) - 1)
     residual_variance = varY 
@@ -368,10 +422,6 @@ def susie_multi_ss(
     s.intercept = np.zeros(len(XTX_list))
     s.fitted = s.Xr_list
         
-    s.sets = susie_get_cs(
-        s = s, R_list = R_list, coverage = coverage, min_abs_corr = min_abs_corr, 
-        dedup = True, n_purity = np.inf 
-    )
 
     s.pip = susie_get_pip(s, prior_tol=prior_tol)
     if standardize:
@@ -379,6 +429,16 @@ def susie_multi_ss(
         s.X_column_scale_factors[is_constant_column] = 0.0
     s.coef = np.array([np.squeeze(np.sum(s.mu[k] * s.alpha, axis=0) / csd[k, :]) for k in range(len(XTX_list))])
     s.coef_sd = np.array([(np.squeeze(np.sqrt(np.sum(s.alpha * s.mu2[k, k] - (s.alpha*s.mu[k])**2, axis=0)) / csd[k, :])) for k in range(len(XTX_list))])
+
+    if (low_memory_mode and min_abs_corr > 0) or (low_memory_mode and recover_R):
+        for i in range(len(R_list)):
+            recover_R_from_XTX(R_list[i], X_l2_arr[i])
+
+    s.sets = susie_get_cs(
+        s = s, R_list = R_list, coverage = coverage, min_abs_corr = min_abs_corr, 
+        dedup = True, n_purity = np.inf, 
+        calculate_purity = (not low_memory_mode) or (min_abs_corr > 0) or recover_R
+    )
 
     return s
 
@@ -469,9 +529,6 @@ def single_effect_regression(
         
     res = SER_RESULTS(alpha=alpha, mu=post_mean, mu2=post_mean2, lbf=lbf, lbf_model=lbf_model, V=V)
 
-    if low_memory_mode:
-        for XTX in XTX_list:
-            del XTX
 
     return res
 
@@ -479,32 +536,28 @@ def optimize_prior_variance(
     optimize_V, prior_weights, rho, compute_lbf_params=None, alpha=None, post_mean2=None, w_pop=None, check_null_threshold=0, 
     pop_spec_effect_priors = False, current_V = None, float_type = np.float64):
 
+    K = rho.shape[0]
     if optimize_V == 'optim':
         if pop_spec_effect_priors:
-            neg_loglik_logscale = lambda lV: -loglik(np.array([np.exp(lV[0]), np.exp(lV[1])]), prior_weights, compute_lbf_params)
-            opt_obj = minimize(neg_loglik_logscale, x0 = np.log(current_V), bounds = [(-30, 15), (-30, 15)])
-            lV = opt_obj.x
-            V = np.exp(lV)
+            raise Exception('estimate_prior_method="optim" with ' +
+                            'pop_spec_effect_priors=True has not been implemented')
         else:
-            neg_loglik_logscale = lambda lV: -loglik(np.array([np.exp(lV), np.exp(lV)]), prior_weights, compute_lbf_params)
+            neg_loglik_logscale = lambda lV: -loglik(np.array([np.exp(lV) for i in range(K)]), prior_weights, compute_lbf_params)
             opt_obj = minimize_scalar(neg_loglik_logscale, bounds=(-30,15))
             lV = opt_obj.x
             V = np.exp(lV)
     elif optimize_V in ['EM', 'early_EM']:
-        V = np.array([np.sum(alpha * post_mean2[i, i]) for i in range(post_mean2.shape[0])], dtype=float_type)
+        V = np.array([np.sum(alpha * post_mean2[i, i]) for i in range(K)], dtype=float_type)
         if not pop_spec_effect_priors:
             V = (w_pop.dot(V)).astype(float_type)
-    elif optimize_V == 'EM_corrected':
-        rho = rho[0,1]
-        if pop_spec_effect_priors:
-            V = np.array([np.sum(alpha * post_mean2[i, i]) for i in range(post_mean2.shape[0])], dtype=float_type) / (1 + rho)
-        else:
-            V = np.sum(alpha * post_mean2[0, 0] + alpha * post_mean2[1, 1] - 2 * rho * alpha * post_mean2[0, 1])
-            V = V / (2 * (1 - rho ** 2))
     elif optimize_V == 'grid':
-        V_arr = np.logspace(-7, -1, 13)
-        llik_arr = np.array([loglik(V, prior_weights, compute_lbf_params) for V in V_arr])
-        V = V_arr[np.argmax(llik_arr)]
+        if pop_spec_effect_priors:
+            raise Exception('estimate_prior_method="grid" with ' +
+                            'pop_spec_effect_priors=True has not been implemented')
+        else:
+            V_arr = np.logspace(-7, -1, 13)
+            llik_arr = np.array([loglik(V, prior_weights, compute_lbf_params) for V in V_arr])
+            V = V_arr[np.argmax(llik_arr)]
     else:
         raise ValueError('unknown optimization method')
 
@@ -519,14 +572,18 @@ def optimize_prior_variance(
             return V
         elif np.all(np.isclose(V, 0)):
             return 0
-        elif np.any(np.isclose(V, 0)):
-            nonzero_pop = np.squeeze(np.flatnonzero(~np.isclose(V, 0)))
-            V_list = [np.array(v, dtype = float_type) for v in [[V[nonzero_pop], V[nonzero_pop]], [V[0], 0], [0, V[1]], [0, 0]]]
+        # Compare our current effect prior to null models 
         else:
-            V_list = [np.array(v, dtype = float_type) for v in [V, [V[0], 0], [0, V[1]], [0, 0]]]
-        
+            V_list = [V]
+            # zero out each population, one at a time
+            for i in range(K):
+                if not np.isclose(V[i],0):
+                    V_copy = V.copy()
+                    V_copy[i] = 0
+                    V_list.append(V_copy)
+            V_list.append(np.array([np.zeros(K, dtype=float_type)]))
         llik_arr = np.array([loglik(np.array(V), prior_weights, compute_lbf_params) for V in V_list])
-        llik_arr = llik_arr + [0, check_null_threshold, check_null_threshold, 2 * check_null_threshold]
+        llik_arr = llik_arr + np.array([0] + [check_null_threshold for i in range(len(V_list) - 1)])
         V = V_list[np.argmax(llik_arr)]
     if isinstance(V, np.ndarray):
         V[V < 0] = 0
@@ -650,8 +707,6 @@ def compute_lbf_and_moments(
     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
     residual_variance, verbose, float_type = np.float64):
 
-    import ipdb
-    ipdb.set_trace()
     num_pops = XTY.shape[1]
     num_variables = XTY.shape[0]
 
@@ -691,8 +746,6 @@ def compute_lbf_and_moments(
         post_covar_i = A - AQ.dot(A) + AQ.dot(np.linalg.solve(Ainv_plus_Q, AQ.T))
         post_mean2[:, :, i] = np.maximum(post_covar_i + np.outer(post_mean[:,i], post_mean[:,i]), 0)
 
-    #import ipdb
-    #ipdb.set_trace()
     return lbf, post_mean, post_mean2
 
 def compute_lbf_and_moments_safe(
@@ -738,8 +791,6 @@ def compute_lbf_and_moments_safe(
         post_covar_i = A - AQ.dot(A) + AQ.dot(np.linalg.solve(Ainv_plus_Q, AQ.T))
         post_mean2[:, :, i] = post_covar_i + np.outer(post_mean[:,i], post_mean[:,i])
 
-    #import ipdb
-    #ipdb.set_trace()
     return lbf, post_mean, post_mean2
 
 def get_objective(XTX_list, XTY_list, s, YTY_list, X_l2_arr):
@@ -791,7 +842,8 @@ def susie_get_pip(s, prior_tol=1e-9):
     return pips
 
 def susie_get_cs(
-    s, R_list, coverage = 0.95, min_abs_corr = 0.5, dedup = True, n_purity = 100):
+    s, R_list, coverage = 0.95, min_abs_corr = 0.5, dedup = True, n_purity = 100,
+    calculate_purity = True):
 
 
     include_mask = np.any(s.V > 1e-9, axis = 0)
@@ -812,8 +864,11 @@ def susie_get_cs(
     if not np.any(include_mask):
         return ([[] for i in range(len(include_mask))], None, None, include_mask)
 
-    purity = np.array([get_purity_x(cs[i], R_list, min_abs_corr, n_purity) if include_mask[i] else np.NaN for i in range(len(cs))])
-    include_mask[purity < min_abs_corr] = False
+    if calculate_purity:
+        purity = np.array([get_purity_x(cs[i], R_list, min_abs_corr, n_purity) if include_mask[i] else np.NaN for i in range(len(cs))])
+        include_mask[purity < min_abs_corr] = False
+    else:
+        purity = np.array([np.NaN for i in range(len(cs))])
 
     return (cs, purity, claimed_coverage, include_mask)
 
@@ -838,3 +893,11 @@ def get_purity_x(cs, R_list, min_abs_cor, n_purity):
         cs = random.sample(cs.tolist(), n_purity)
     abs_meta_R = functools.reduce(np.maximum, [np.abs(R[cs, :][:, cs]) for R in R_list])
     return np.min(abs_meta_R)
+
+def recover_R_from_XTX(XTX, X_l2):
+    assert((XTX[:,np.flatnonzero(X_l2 == 0)] == 0).all())
+    assert((XTX[np.flatnonzero(X_l2 == 0),:] == 0).all())
+    with np.errstate(divide='ignore', invalid = 'ignore'):
+        XTX /= np.sqrt(np.nan_to_num(X_l2, 1))
+        XTX /= np.sqrt(np.expand_dims(np.nan_to_num(X_l2, 1), 1))
+
