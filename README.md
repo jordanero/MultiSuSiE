@@ -23,14 +23,14 @@ To create a fresh conda environment capable of running multisusie:
 ```
 git clone https://github.com/jordanero/MultiSuSiE
 cd MultiSuSiE
-conda env create -f MultiSuSiE.yml
+conda env create -f environment.yml
 conda activate MultiSuSiE
 pip install .
 ```
 
 ### PIP
 
-To install MultiSuSiE into an existing environment, activate the environment (or dont if you'd like to install into your base environment) and run
+To install MultiSuSiE into an existing environment, activate the environment (or don't if you'd like to install MultiSuSiE into your base environment) and run
 ```
 git clone https://github.com/jordanero/MultiSuSiE
 cd MultiSuSiE
