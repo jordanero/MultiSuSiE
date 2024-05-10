@@ -1,7 +1,7 @@
 # MultiSuSiE
 MultiSuSiE is a multi-ancestry extension of the [Sum of Single Effects model](https://github.com/stephenslab/susieR) (Wang et al. 2020 J. R. Statist. Soc. B, Zou et al. 2022 PLoS Genet.) implemented in Python. 
 
-This MultiSuSiE implementation follows the [susieR](https://github.com/stephenslab/susieR) implementation as closely as possible. We thank the SuSiER developers for their work. 
+This MultiSuSiE implementation follows the [susieR](https://github.com/stephenslab/susieR) implementation as closely as possible. We thank the susieR developers for their work. 
 
 ## Getting Started
 
@@ -25,9 +25,17 @@ git clone https://github.com/jordanero/MultiSuSiE
 cd MultiSuSiE
 conda env create -f MultiSuSiE.yml
 conda activate MultiSuSiE
+pip install .
 ```
 
 ### PIP
+
+To install MultiSuSiE into an existing environment, activate the environment (or dont if you'd like to install into your base environment) and run
+```
+git clone https://github.com/jordanero/MultiSuSiE
+cd MultiSuSiE
+pip install .
+```
 
 ### Executable
 
