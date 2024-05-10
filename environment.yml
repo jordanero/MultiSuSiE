@@ -1,8 +1,8 @@
-name: multisusie_min_reqs
+name: MultiSuSiE
 channels:
 dependencies:
   - python>=3.0
-  - numpy=1.20
-  - scipy=1.4.1
-  - numba=0.51.2
+  - numpy>=1.20
+  - scipy>=1.4.1
+  - numba>=0.51.2
   - tqdm
