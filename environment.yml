@@ -1,5 +1,6 @@
 name: MultiSuSiE
 channels:
+  - conda-forge
 dependencies:
   - python>=3.0
   - numpy>=1.20
