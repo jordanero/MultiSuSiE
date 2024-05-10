@@ -25,9 +25,17 @@ git clone https://github.com/jordanero/MultiSuSiE
 cd MultiSuSiE
 conda env create -f MultiSuSiE.yml
 conda activate MultiSuSiE
+pip install .
 ```
 
 ### PIP
+
+To install MultiSuSiE into an existing environment, activate the environment (or dont if you'd like to install into your base environment) and run
+```
+git clone https://github.com/jordanero/MultiSuSiE
+cd MultiSuSiE
+pip install .
+```
 
 ### Executable
 
