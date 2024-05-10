@@ -1,0 +1,19 @@
+[build-system]
+requires = ['setuptools']
+build-backend = "setuptools.build_meta"
+
+[project]
+name = 'MultiSuSiE'
+authors = [
+    {name = 'Jordan Rossen', email = 'jordanerossen@gmail.com'},
+    {name = 'Omer Weissbrod', email = 'fake@fake.com'},
+]
+readme = 'README.md'
+version='1.0'
+dependencies = [
+    'numpy', 
+    'scipy', 
+    'tqdm', 
+    'numba'
+]
+
