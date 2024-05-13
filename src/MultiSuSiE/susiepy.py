@@ -441,6 +441,9 @@ def susie_multi(X_list, Y_list, rho, L,
         float_dtype = float_dtype,
         check_null_threshold = check_null_threshold
         )
+        if i == 0:
+            import pickle
+            pickle.dump(s, open('/n/groups/price/jordan/MultiSuSiE/data/misc/s_indiv.pkl', 'wb'))
 
         #compute objective before updating residual variance
         #because part of the objective s.kl has already been computed

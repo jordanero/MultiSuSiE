@@ -341,7 +341,7 @@ def susie_multi_ss(
 
     varY = np.array([YTY/(n-1) for (YTY, n) in zip(YTY_list, population_sizes)])
     varY_pooled = np.sum(YTY_list) / (np.sum(population_sizes) - 1)
-    residual_variance = varY 
+    residual_variance = varY
     if np.isscalar(scaled_prior_variance) & standardize:
         assert 0 < scaled_prior_variance <= 1
     if prior_weights is None:
@@ -392,6 +392,9 @@ def susie_multi_ss(
             pop_spec_effect_priors = pop_spec_effect_priors,
             float_type = float_type
         )
+        if i == 0:
+            import pickle
+            pickle.dump(s, open('/n/groups/price/jordan/MultiSuSiE/data/misc/s_ss.pkl', 'wb'))
 
         update_ER2(XTX_list, XTY_list, YTY_list, s, X_l2_arr)
         elbo[i+1] = get_objective(XTX_list, XTY_list, s, YTY_list, X_l2_arr)
@@ -900,4 +903,3 @@ def recover_R_from_XTX(XTX, X_l2):
     with np.errstate(divide='ignore', invalid = 'ignore'):
         XTX /= np.sqrt(np.nan_to_num(X_l2, 1))
         XTX /= np.sqrt(np.expand_dims(np.nan_to_num(X_l2, 1), 1))
-
