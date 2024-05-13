@@ -25,14 +25,16 @@ y_list = [y - np.mean(y) for y in y_list]
 
 XTY_list = [geno.T.dot(y) for (geno, y) in zip(geno_list, y_list)]
 XTX_diagonal_list = [np.diagonal(geno.T.dot(geno)) for geno in geno_list]
-beta_hat_list = [XTY / XTX_diag for (XTY, XTX_diag) in zip(XTY_list, XTX_diagonal_list)]
+
+with np.errstate(divide='ignore',invalid='ignore'):
+    beta_hat_list = [XTY / XTX_diag for (XTY, XTX_diag) in zip(XTY_list, XTX_diagonal_list)]
 
 N_list = [geno.shape[0] for geno in geno_list]
 residuals_list = [np.expand_dims(y, 1) - (geno * beta) for (y, geno, beta) in zip(y_list, geno_list, beta_hat_list)]
 sum_of_squared_residuals_list = [np.sum(resid ** 2, axis = 0) for resid in residuals_list]
 se_list = [np.sqrt(ssr / ((N - 2) * XTX)) for (ssr, N, XTX) in zip(sum_of_squared_residuals_list, N_list, XTX_diagonal_list)]
-
-R_list = [np.corrcoef(geno, rowvar = False) for geno in geno_list]
+with np.errstate(divide='ignore',invalid='ignore'):
+    R_list = [np.corrcoef(geno, rowvar = False) for geno in geno_list]
 
 YTY_list = [y.dot(y) for y in y_list]
 varY_list = [np.var(y) for y in y_list]
