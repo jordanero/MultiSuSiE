@@ -50,3 +50,6 @@ The fastest way to get started is probably to check out examples/example.ipynb o
 
 
 
+## Questions?
+
+Feel free to email jordanerossen@gmail.com with any questions.
