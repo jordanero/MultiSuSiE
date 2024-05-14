@@ -44,5 +44,5 @@ pip install .
 
 ## Tutorial
 
-The fastest way to get started is to check out (in progress)
+The fastest way to get started is to check out (in progress, for now tests.py has an example with public HapMap3 data).
 
