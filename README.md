@@ -44,7 +44,9 @@ pip install . -U
 
 ## Running MultiSuSiE
 
-The primary top-level MultiSuSie function is `susie_multi_rss`. `susie_multi_rss` accepts lists of numpy arrays containing GWAS summary statistics and LD matrices and performs the full fine-mapping algorithm. To see its full documentation, just start a Python session and type `import MultiSuSiE`, then `help(MultiSuSiES.susie_multi_rss)`. 
+The primary top-level MultiSuSie function is `multisusie_rss`. `multisusie_rss` accepts lists of numpy arrays containing GWAS summary statistics and LD matrices and performs the full fine-mapping algorithm. To see its full documentation, just start a Python session and type `import MultiSuSiE`, then `help(MultiSuSiES.multisusie_rss)`. 
 
-The fastest way to get started is to check out (in progress, for now tests.py has an example with public HapMap3 data).
+The fastest way to get started is probably to check out examples/example.ipynb or examples/example.pdf, but we'll discuss `multisusie_rss` at a high level here:
+
+
 
