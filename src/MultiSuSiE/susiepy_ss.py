@@ -100,7 +100,9 @@ def multisusie_rss(
         value of np.nan.
     varY_list: length K list representing the sample variance of the outcome
         in each population
-    rho: PxP numpy array representing the effect size correlation matrix
+    rho: PxP numpy array representing the effect size correlation matrix. In 
+        the manuscript, we show that this parameter has little impact on the
+        estimated PIPs in practice.
     population_sizes: list of integers representing the number of samples in
         the GWAS for each population
     L: integer representing the maximum number of causal variants
@@ -194,7 +196,8 @@ def multisusie_rss(
     # make copies of R if low_memory_mode=False to avoid modifying the input data 
     if low_memory_mode:
         R_list_copy = R_list
-        b_list_copy = R_list
+        b_list_copy = b_list
+        s_list_copy = s_list
         print('low memory mode is on. THE INPUT R MATRICES HAVE BEEN ' + \
             'TRANSFORMED INTO XTX AND CENSORED BASED ON MISSINGNESS. ' + \
             'THE INPUT R MATRICES HAVE BEEN CHANGED.')
