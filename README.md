@@ -53,7 +53,7 @@ The fastest way to get started is probably to check out examples/example.ipynb o
 - b_list is a length K list (one per population) of length P numpy arrays representing GWAS effect sizes for each variant considered.
 - s_list is a length K list (one per population) of length P numpy arrays representing GWAS effect size standard errors for each variant considered.
 - R_list is a length K list (one per population) of PxP numpy arrays representing the LD correlation matrix for each population.
-- varY_list is a length K representing the sampel variance of the outcome in each population.
+- varY_list is a length K representing the sample variance of the outcome in each population.
 - population_sizes is a length K list of integers representing the GWAS sample size of each population.
 
 ## Questions?
