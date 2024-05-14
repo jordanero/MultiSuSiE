@@ -74,9 +74,9 @@ def multisusie_rss(
     low_memory_mode = False,
     recover_R = False,
     mac_filter = 20,
-    maf_filter = 0,
+    maf_filter = 0
     ):
-    """ Top-level function for running MultiSuSiE 
+    """ Top-level function for running MultiSuSiE
 
     This function takes takes standard GWAS summary statistics, converts
     them to sufficient statistics, and runs MultiSuSiE on them.
@@ -119,7 +119,7 @@ def multisusie_rss(
         adjust summary statistics to be as if genotypes were standardized
         separately for each population, or pooled and then standardized
     estimate_residual_variance: boolean, whether to estimate the residual variance,
-        $\sigma^2_k$ in the manuscript
+        $\\sigma^2_k$ in the manuscript
     estimate_prior_variance: boolean, whether to estimate the prior variance,
         $A^{(l)}$ in the manuscript
     estimate_prior_method: string, method to estimate the prior variance. Recommended
@@ -186,12 +186,19 @@ def multisusie_rss(
     ----
         - think about consequences of standardizing Y
         - Add command line interface
-        - Add tests, probably based on tests used for SuSiER
+        - Add more tests, probably based on tests used for SuSiER
         - Make defaults match between sufficient statistic and summary statistic
           functions
         - Implement missing functionality for individual-level multisusie
     """
 
+    K = len(b_list)
+    assert len(s_list) == K
+    assert len(R_list) == K
+    assert len(varY_list) == K
+    assert len(population_sizes) == K
+    assert np.isscalar(rho) | ((rho.shape[0] == K) & (rho.shape[1] == K))
+    
 
     # make copies of R if low_memory_mode=False to avoid modifying the input data 
     if low_memory_mode:
@@ -200,31 +207,35 @@ def multisusie_rss(
         s_list_copy = s_list
         print('low memory mode is on. THE INPUT R MATRICES HAVE BEEN ' + \
             'TRANSFORMED INTO XTX AND CENSORED BASED ON MISSINGNESS. ' + \
-            'THE INPUT R MATRICES HAVE BEEN CHANGED.')
+            'THE INPUT R MATRICES HAVE BEEN CHANGED. The datatypes of ' + \
+            'b_list, s_list, and R_list have been mutated in place ' + \
+            'to match float_type')
     else:
         R_list_copy = [np.copy(R) for R in R_list]
         b_list_copy = [np.copy(b) for b in b_list]
         s_list_copy = [np.copy(s) for s in s_list]
 
     # convert everything to the requested float type if necessary
-    for i in range(len(b_list_copy)):
+    for i in range(K):
         if b_list_copy[i].dtype != float_type:
-            b_list_copy[i] = b_list_copy[i].astype(float_type, copy = not low_memory_mode)
+            b_list_copy[i] = b_list_copy[i].astype(float_type, copy = False)
         if s_list_copy[i].dtype != float_type:
-            s_list_copy[i] = s_list_copy[i].astype(float_type, copy = not low_memory_mode)
+            s_list_copy[i] = s_list_copy[i].astype(float_type, copy = False)
         if R_list_copy[i].dtype != float_type:
-            R_list_copy[i] = R_list_copy[i].astype(float_type, copy = not low_memory_mode)
-        if rho.dtype != float_type:
-            rho = rho.astype(float_type)
-        varY_list = np.array(varY_list, dtype = float_type)
+            R_list_copy[i] = R_list_copy[i].astype(float_type, copy = False)
+        if (not np.isscalar(rho)) and (rho.dtype != float_type):
+            rho = rho.astype(float_type, copy = True)
+
+    population_sizes = np.array(population_sizes, dtype = float_type)
+    varY_list = np.array(varY_list, dtype = float_type)
 
 
     # convert GWAS summary statistics to MultiSuSiE sufficient statistics
     XTX_list = []
     XTY_list = []
     YTY_list = []
-    for i in range(len(b_list_copy)):
-        YTY = varY_list[i] * (population_sizes[i] - 1)
+    for i in range(K):
+        YTY = (varY_list[i] * (population_sizes[i] - 1)).astype(float_type)
         XTX, XTY, n_censored = recover_XTX_and_XTY(
             b = b_list_copy[i],
             s = s_list_copy[i],
@@ -240,6 +251,9 @@ def multisusie_rss(
         if n_censored > 0:
             print('censored %d variants in population %d'%(n_censored, i))
 
+    if np.isscalar(rho):
+        rho = np.ones((K, K), dtype=float_type) * rho
+        rho[np.diag_indices(K)] = 1
     
     s = susie_multi_ss(
         XTX_list = XTX_list, 
@@ -316,6 +330,29 @@ def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
 
     return(R, XTY, np.sum(mask))
 
+def recover_XTX_and_XTY_from_Z(z, R, n):
+    """ Recover XTX and XTY from z scores and LD correlation matrix
+
+    This should be equivalent to SuSiE using standardized genotype and phenotype
+
+    Parameters
+    ----------
+    z: length-P numpy array of floats representing GWAS z scores
+    R: PxP numpy array of floats representing the LD correlation matrix
+    n: integer representing the number of samples in the GWAS
+
+    Returns
+    -------
+    XTX: PxP numpy array representing the X^T X matrix
+    XTY: length-P numpy array representing the X^T Y vector
+    """
+    adj = (n - 1) / (z ** 2 + n - 2)
+    z = sqrt(adj) * z
+    XTX *= (n - 1)
+    XTY = sqrt(n - 1) * z
+
+    return XTX, XTY
+
 def susie_multi_ss(
     XTX_list, XTY_list, YTY_list,
     rho,
@@ -369,7 +406,7 @@ def susie_multi_ss(
         adjust summary statistics to be as if genotypes were standardized
         separately for each population, or pooled and then standardized
     estimate_residual_variance: boolean, whether to estimate the residual variance,
-        $\sigma^2_k$ in the manuscript
+        $\\sigma^2_k$ in the manuscript
     estimate_prior_variance: boolean, whether to estimate the prior variance,
         $A^{(l)}$ in the manuscript
     estimate_prior_method: string, method to estimate the prior variance. Recommended
@@ -453,7 +490,7 @@ def susie_multi_ss(
         csd = np.sqrt(X_l2_arr/(np.expand_dims(population_sizes, axis = 1) - 1))
         if not pop_spec_standardization:
             csd = csd.T.dot(w_pop)
-            csd = csd * np.ones((len(XTX_list), csd.shape[0]))
+            csd = csd * np.ones((len(XTX_list), csd.shape[0]), dtype = float_type)
         is_constant_column = np.isclose(csd, 0.0)
         csd[is_constant_column] = 1.0
         for pop_i in range(len(XTX_list)):
@@ -462,9 +499,9 @@ def susie_multi_ss(
             XTY_list[pop_i] = XTY_list[pop_i] / csd[pop_i, :]
         X_l2_arr = np.array([np.diag(XTX) for XTX in XTX_list], dtype = float_type)
     else:
-        csd = np.ones((len(XTX_list), XTX_list[0].shape[1]))
-    varY = np.array([YTY/(n-1) for (YTY, n) in zip(YTY_list, population_sizes)])
-    varY_pooled = np.sum(YTY_list) / (np.sum(population_sizes) - 1)
+        csd = np.ones((len(XTX_list), XTX_list[0].shape[1]), dtype = float_type)
+    varY = np.array([YTY/(n-1) for (YTY, n) in zip(YTY_list, population_sizes)], dtype = float_type)
+    varY_pooled = (np.sum(YTY_list) / (np.sum(population_sizes) - 1)).astype(float_type)
     residual_variance = varY
 
     #init setup
@@ -766,7 +803,7 @@ def optimize_prior_variance(
         raise ValueError('unknown optimization method')
 
     if not pop_spec_effect_priors:
-        V = V * np.ones(post_mean2.shape[0])
+        V = V * np.ones(post_mean2.shape[0], dtype = float_type)
         # set V exactly 0 if that beats the numerical value by check_null_threshold in loglik.
         delta_loglik = loglik(0, prior_weights, compute_lbf_params) + check_null_threshold - loglik(V, prior_weights, compute_lbf_params)
         if np.isclose(delta_loglik, 0) or delta_loglik >= 0:
