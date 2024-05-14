@@ -5,7 +5,7 @@ This MultiSuSiE implementation follows the [susieR](https://github.com/stephensl
 
 ## Installation
 
-There are 3 ways to install MultiSuSiE
+There are 3 ways to install MultiSuSiE. The first two listed below will install a Python package and allow you to call MultiSuSiE via Python or a command line interface (in progress). The third (in progress) will only provide access to the command line interface.
 
 ### Installing into a fresh conda environment
 
@@ -40,7 +40,9 @@ pip install .
 
 ### Executable
 
+(in progress)
+
 ## Tutorial
 
-The fastest way to get started is to check out 
+The fastest way to get started is to check out (in progress)
 
