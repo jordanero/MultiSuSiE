@@ -308,7 +308,7 @@ def susie_get_pip(s, prior_tol=1e-9):
         
 
 
-def susie_multi(X_list, Y_list, rho, L,
+def multisusie(X_list, Y_list, rho, L,
          scaled_prior_variance=0.00001,
          residual_variance=None, 
          prior_weights=None,
@@ -555,40 +555,4 @@ def susie_multi(X_list, Y_list, rho, L,
     
     return beta, X_train_list, Y_train_list, X_test_list, Y_test_list
         
-        
-#def main():
-#    configure_logger()
-#
-#    # X = np.loadtxt('X.txt', delimiter='\t')
-#    # Y = np.loadtxt('Y.txt', delimiter='\t')
-#    
-#    #prior_weights = 1.0/X.shape[1] + np.zeros(X.shape[1])
-#    #prior_weights[0] = 1.0
-#        
-#    #rho = np.array([[1,0.8], [0.8,1]])
-#    #beta, X_train_list, Y_train_list, X_test_list, Y_test_list = generate_data(n_arr=[50000, 10000], h2_arr=[0.005,0.01], p=10, L=2, rho=rho)
-#
-#    rho = np.ones((1,1))
-#    beta, X_train_list, Y_train_list, X_test_list, Y_test_list = generate_data(n_arr=[10000], h2_arr=[0.01], p=10, L=2, rho=rho)
-#
-#    
-#    
-#    susie_obj = susie_multi(X_train_list, Y_train_list, rho, L=10, estimate_prior_variance=True, verbose=True, prior_weights=None, estimate_prior_method='EM')
-#    #susie_obj_em = susie_multi(X_train_list, Y_train_list, rho, L=10, estimate_prior_variance=True, verbose=True, prior_weights=None, estimate_prior_method='EM')
-#
-#    Y_hat = np.array([susie_obj.intercept[k] + X_test_list[k].dot(susie_obj.coef[k]) for k in range(len(X_test_list))])
-#    import ipdb; ipdb.set_trace()    
-#        
-#        
-#        
-#if __name__ == '__main__':
-#    main()
-
-    
-    
-    
-        
-        
-        
-        
-        
+susie_multi = multisusie

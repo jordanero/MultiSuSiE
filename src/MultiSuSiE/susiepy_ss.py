@@ -47,7 +47,7 @@ class SER_RESULTS:
         self.V = V
         self.lbf_model = lbf_model
 
-def susie_multi_rss(
+def multisusie_rss(
     b_list,
     s_list,
     R_list,
@@ -84,19 +84,31 @@ def susie_multi_rss(
     Parameters
     ----------
     b_list: length K list of length P numpy arrays containing effect size 
-        standard errors, one for each population
+        standard errors, one for each population. Each array should correspond
+        to the same set of P variants, in the same order. Variants that should
+        not be included in a given population due to low MAF can be assigned a
+        value of np.nan.
     s_list: length K list of length P numpy arrays containing effect size 
-        standard errors, one for each population
+        standard errors, one for each population. Each array should correspond
+        to the same set of P variants, in the same order. Variants that should
+        not be included in a given population due to low MAF can be assigned a
+        value of np.nan.
     R_list: length K list of PxP numpy arrays representing the LD correlation 
-        matrices for each population
+        matrices for each population. Each array should correspond
+        to the same set of P variants, in the same order. Variants that should
+        not be included in a given population due to low MAF can be assigned a
+        value of np.nan.
     varY_list: length K list representing the sample variance of the outcome
         in each population
     rho: PxP numpy array representing the effect size correlation matrix
     population_sizes: list of integers representing the number of samples in
         the GWAS for each population
     L: integer representing the maximum number of causal variants
-    scaled_prior_variance: float representing the effect size prior variance, 
-        scaled by the residual variance
+    scaled_prior_variance: float representing the effect size prior variance,
+        scaled by the residual variance. It's fine to set this to a number 
+        larger than what you expect the squared effect size to be (like the 
+        default value of 0.2) as long as estimate_prior_variance is set to True
+        and estimate_prior_method is not set to None.
     prior_weights: numpy P-array of floats representing the prior probability
         of causality for each variant. Give None to use a uniform prior
     standardize: boolean, whether to adjust summmary statistics to be as if 
@@ -171,29 +183,32 @@ def susie_multi_rss(
     TODO
     ----
         - think about consequences of standardizing Y
-        - Turn this into a package. Will probably have to figure out how to 
-          deal with paths and imports. 
-        - Add documentation throughout
-        - Add command line interface?
+        - Add command line interface
         - Add tests, probably based on tests used for SuSiER
         - Make defaults match between sufficient statistic and summary statistic
           functions
+        - Implement missing functionality for individual-level multisusie
     """
 
 
+    # make copies of R if low_memory_mode=False to avoid modifying the input data 
     if low_memory_mode:
         R_list_copy = R_list
+        b_list_copy = R_list
         print('low memory mode is on. THE INPUT R MATRICES HAVE BEEN ' + \
             'TRANSFORMED INTO XTX AND CENSORED BASED ON MISSINGNESS. ' + \
             'THE INPUT R MATRICES HAVE BEEN CHANGED.')
     else:
         R_list_copy = [np.copy(R) for R in R_list]
+        b_list_copy = [np.copy(b) for b in b_list]
+        s_list_copy = [np.copy(s) for s in s_list]
 
-    for i in range(len(b_list)):
-        if b_list[i].dtype != float_type:
-            b_list[i] = b_list[i].astype(float_type, copy = not low_memory_mode)
-        if s_list[i].dtype != float_type:
-            s_list[i] = s_list[i].astype(float_type, copy = not low_memory_mode)
+    # convert everything to the requested float type if necessary
+    for i in range(len(b_list_copy)):
+        if b_list_copy[i].dtype != float_type:
+            b_list_copy[i] = b_list_copy[i].astype(float_type, copy = not low_memory_mode)
+        if s_list_copy[i].dtype != float_type:
+            s_list_copy[i] = s_list_copy[i].astype(float_type, copy = not low_memory_mode)
         if R_list_copy[i].dtype != float_type:
             R_list_copy[i] = R_list_copy[i].astype(float_type, copy = not low_memory_mode)
         if rho.dtype != float_type:
@@ -201,15 +216,15 @@ def susie_multi_rss(
         varY_list = np.array(varY_list, dtype = float_type)
 
 
+    # convert GWAS summary statistics to MultiSuSiE sufficient statistics
     XTX_list = []
     XTY_list = []
     YTY_list = []
-
-    for i in range(len(b_list)):
+    for i in range(len(b_list_copy)):
         YTY = varY_list[i] * (population_sizes[i] - 1)
         XTX, XTY, n_censored = recover_XTX_and_XTY(
-            b = b_list[i],
-            s = s_list[i],
+            b = b_list_copy[i],
+            s = s_list_copy[i],
             R = R_list_copy[i],
             YTY = YTY,
             n = population_sizes[i],
@@ -222,8 +237,8 @@ def susie_multi_rss(
         if n_censored > 0:
             print('censored %d variants in population %d'%(n_censored, i))
 
-
-    return susie_multi_ss(
+    
+    s = susie_multi_ss(
         XTX_list = XTX_list, 
         XTY_list = XTY_list, 
         YTY_list = YTY_list, 
@@ -251,16 +266,44 @@ def susie_multi_rss(
         recover_R = recover_R
     )
 
-# THIS FUNCTION MUTATES INPUT R. BE CAREFUL
+    return s
+
+susie_multi_rss = multisusie_rss
+
 def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
+    """ Recover XTX and XTY from GWAS summary statistics. INPUT R IS MUTATED 
+
+    THIS FUNCTION MUTATES INPUT R to reduce memory consumpation. BE CAREFUL!! 
+    see page 4 of the supplement of Zou et al. 2022 PLoS Genetics for a derivation
+
+    Parameters
+    ----------
+    b: length-P numpy array of floats representing effect sizes
+    s: length-P numpy array of floats representing standard errors
+    R: PxP numpy array of floats representing the LD correlation matrix
+    YTY: float representing the sample variance of the outcome,
+    n: integer representing the number of samples in the GWAS
+    mac_filter: float representing the minimum minor allele count for a variant
+    maf_filter: float representing the minimum minor allele frequency for a variant
+
+    Returns
+    -------
+    R: PxP numpy array representing the LD correlation matrix, with low MAF/MAC
+        variants censored. Note that this is the same object as the input R
+    XTY: length-P numpy array representing the X^T Y vector
+    n_censored: integer representing the number of variants censored
+    """
+
+    #  see page 4 of the supplement of Zou et al. 2022 PLoS Genetics for a derivation
     sigma2 = YTY / ((b / s) ** 2 + n - 2)
     XTY = np.nan_to_num(sigma2 * b / (s ** 2))
     dR = np.nan_to_num(sigma2 / (s ** 2))
     R *= np.expand_dims(np.sqrt(dR), axis = 1)
     R *=  np.sqrt(dR)
+    np.nan_to_num(R, copy = False)
 
+    # Now we censor low MAF/MAC variants by approximating the MAF under HWE
     maf_filter = np.maximum(maf_filter, mac_filter / (2 * n))
-
     var_x = np.minimum(dR / (n - 1), .5) # this can be > .5 due to HWE violations?
     maf = 1 / 2 - np.sqrt(1 - 2 * var_x) / 2
     mask = maf < maf_filter
@@ -295,8 +338,93 @@ def susie_multi_ss(
     low_memory_mode = False,
     recover_R = False
     ):
+    """ Run MultiSuSiE on sufficient statistics
 
-    #check input
+    This function runs MultiSuSiE on sufficient statistics. It is designed to 
+    be run from the top-level function multisusie_rss, but can be run directly.
+    It will not censor based on MAF/MAC, unlike multisusie_rss.
+
+    Parameters
+    ----------
+    XTX_list: length K list of PxP numpy arrays representing the X^T X matrices
+    XTY_list: length K list of length P numpy arrays representing the X^T Y vectors
+    YTY_list: length K list of floats representing the sample variance of the outcome
+    rho: PxP numpy array representing the effect size correlation matrix
+    population_sizes: list of integers representing the number of samples in
+        the GWAS for each population
+    L: integer representing the maximum number of causal variants
+    scaled_prior_variance: float representing the effect size prior variance,
+        scaled by the residual variance. It's fine to set this to a number 
+        larger than what you expect the squared effect size to be (like the 
+        default value of 0.2) as long as estimate_prior_variance is set to True
+        and estimate_prior_method is not set to None.
+    prior_weights: numpy P-array of floats representing the prior probability
+        of causality for each variant. Give None to use a uniform prior
+    standardize: boolean, whether to adjust summmary statistics to be as if 
+        genotypes were standardized to have mean 0 and variance 1
+    pop_spec_standardization: boolean, if standardize is True, whether to 
+        adjust summary statistics to be as if genotypes were standardized
+        separately for each population, or pooled and then standardized
+    estimate_residual_variance: boolean, whether to estimate the residual variance,
+        $\sigma^2_k$ in the manuscript
+    estimate_prior_variance: boolean, whether to estimate the prior variance,
+        $A^{(l)}$ in the manuscript
+    estimate_prior_method: string, method to estimate the prior variance. Recommended
+        values are 'early_EM' or None
+    pop_spec_effect_priors: boolean, whether to estimate separate prior 
+        variance parameters for each population
+    iter_before_zeroing_effects: integer, number of iterations to run before
+        zeroing out component-population pairs (or components if 
+        pop_spec_effect_priors is False) that have a lower likelihood than a 
+        null model
+    prior_tol: float which places a filter on the minimum prior variance
+        for a component to be included when estimating PIPs
+    max_iter: integer, maximum number of iterations to run
+    tol: float, after iter_before_zeroing_effects iterations, results
+        are returned if the ELBO increases by less than tol in an ieration
+    verbose: boolean which indicates if an progress bar should be displayed
+    R_list: length K list of PxP numpy arrays representing the LD correlation.
+        If set to None, and min_abs_corr > 0, the LD correlation matrices will
+        be recovered from XTX_list.
+    coverage: float representing the minimum coverage of credible sets
+    min_abs_corr: float representing the minimum absolute correlation between
+        any pair of variants in a credible set. For each pair of variants,
+        the max is taken across ancestries. In the case where min_abs_corr = 0,
+        low_memory_mode = True, and recover_R = False, the purity of credible
+        sets will not be calculated. 
+    float_type: numpy float type used. Set to np.float32 to minimize memory
+        consumption
+    low_memory_mode: boolean, if True, the input R_list will be modified in place.
+        Decreases memory consumption by a factor of two. BUT, THE INPUT R_list
+        WILL BE OVERWRITTEN. If you need R_list, set low_memory_mode to False
+    recover_R: boolean, if True, the R matrices will be recovered from XTX, 
+        BUT variants with MAC/MAF estimate less than mac_filter/maf_filter will
+        be censored. 
+
+    Returns
+    -------
+    an object containing results with the following attributes:
+        alpha: L x P numpy array of single-effect regression posterior 
+            inclusion probabilities
+        mu: K x L x P numpy array of single-effect regression effect size
+            posterior means, conditional on each variant being the causal variant
+        mu2: K x K x L x P numpy array of single-effect regression effect size
+            posterior seconds moments, conditional on each variant being the 
+            causal variant
+        sigma2: length-K numpy array of residual variance estimates
+        pi: length-P numpy array of prior inclusion probabilities
+        n: length-K numpy array of sample sizes
+        L: integer representing the maximum number of causal variants
+        V: K x L numpy array of effect size prior variance estimates
+        ER2: length-K numpy array of expected squared residuals
+        KL: L x 1 numpy array of Kullback-Leibler divergences for each single
+            effect regression
+        lbf: L x 1 numpy array of log Bayes factors for each single effect 
+            regression
+        converged: boolean indicating whether the algorithm converged
+    """
+
+    #check input dimensions
     assert len(XTX_list) == len(XTY_list)
     assert np.all([XTX.shape[1] == XTX_list[0].shape[1] for XTX in XTX_list])
     assert np.all([XTX.shape[0] == XTY.shape[0] for (XTX,XTY) in zip(XTX_list, XTY_list)])
@@ -304,12 +432,10 @@ def susie_multi_ss(
         prior_weights = prior_weights.astype(float_type)
 
     assert not np.any([np.any(np.isnan(XTX)) for XTX in XTX_list])
-    
         
     #compute w_pop (the relative size of each population)
     population_sizes = np.array(population_sizes)
     w_pop = (population_sizes/ population_sizes.sum()).astype(float_type)
-
     
     #compute rho properties
     rho = rho.astype(float_type)
@@ -317,9 +443,9 @@ def susie_multi_ss(
     logdet_rho_sign, logdet_rho = np.linalg.slogdet(rho)
     assert logdet_rho_sign>0
 
-
     X_l2_arr = np.array([np.diag(XTX) for XTX in XTX_list], dtype = float_type)
 
+    # calculate scaling factors
     if standardize:
         csd = np.sqrt(X_l2_arr/(np.expand_dims(population_sizes, axis = 1) - 1))
         if not pop_spec_standardization:
@@ -331,17 +457,16 @@ def susie_multi_ss(
             XTX_list[pop_i] *= (1 / csd[pop_i, :])
             XTX_list[pop_i] *= (1 / np.expand_dims(csd[pop_i, :], 1))
             XTY_list[pop_i] = XTY_list[pop_i] / csd[pop_i, :]
+        X_l2_arr = np.array([np.diag(XTX) for XTX in XTX_list], dtype = float_type)
     else:
         csd = np.ones((len(XTX_list), XTX_list[0].shape[1]))
-
-    X_l2_arr = np.array([np.diag(XTX) for XTX in XTX_list], dtype = float_type)
-    
-    #init setup
-    p = XTX_list[0].shape[1]
-
     varY = np.array([YTY/(n-1) for (YTY, n) in zip(YTY_list, population_sizes)])
     varY_pooled = np.sum(YTY_list) / (np.sum(population_sizes) - 1)
     residual_variance = varY
+
+    #init setup
+    p = XTX_list[0].shape[1]
+
     if np.isscalar(scaled_prior_variance) & standardize:
         assert 0 < scaled_prior_variance <= 1
     if prior_weights is None:
@@ -350,20 +475,23 @@ def susie_multi_ss(
         prior_weights = (prior_weights / np.sum(prior_weights)).astype(float_type)
     assert prior_weights.shape[0] == p
     if p<L: L=p
+
+    # initialize s, which tracks the current model parameter estimates
     s = S(
         population_sizes, L, XTX_list, scaled_prior_variance, residual_variance,
         varY_pooled, prior_weights, float_type = float_type
     )
+
     elbo = np.zeros(max_iter+1) + np.nan
     elbo[0] = -np.inf
     check_null_threshold = 0.0
-
     
     ### start iterations ###
     tqdm_iter = tqdm(list(range(max_iter)), disable=not verbose, file=sys.stdout)
     for i in tqdm_iter:
         tqdm_iter.set_description('iteration %d/%d'%(i+1, max_iter))
 
+        # set the prior variance estimation method for this iteration
         if estimate_prior_method == 'early_EM':
             if i == 0: 
                 current_estimate_prior_method = None
@@ -382,25 +510,24 @@ def susie_multi_ss(
         else:
             current_check_null_threshold = check_null_threshold
 
-        old_s = copy.deepcopy(s)
-        s = update_each_effect(
+        # update all L single effect regressions. s is modified in place.
+        update_each_effect(
             XTX_list, XTY_list, s, X_l2_arr, w_pop,
             rho, inv_rho, logdet_rho,
             estimate_prior_variance, current_estimate_prior_method,
-            verbose=verbose,
             check_null_threshold = current_check_null_threshold,
             pop_spec_effect_priors = pop_spec_effect_priors,
             float_type = float_type
         )
-        if i == 0:
-            import pickle
-            pickle.dump(s, open('/n/groups/price/jordan/MultiSuSiE/data/misc/s_ss.pkl', 'wb'))
 
-        update_ER2(XTX_list, XTY_list, YTY_list, s, X_l2_arr)
+        # update the ER2 parameter of s. Used by get_objective and 
+        # estimate_resdiaul_variance_func
+        s.ER2 = update_ER2(XTX_list, XTY_list, YTY_list, s, X_l2_arr)
+
+        # update the ELBO and check for convergence
         elbo[i+1] = get_objective(XTX_list, XTY_list, s, YTY_list, X_l2_arr)
         if verbose:
             print('objective: %s'%(elbo[i+1]))
-    
         if ((elbo[i+1] - elbo[i]) < tol) and (i >= (iter_before_zeroing_effects + 1)):
             s.converged = True
             tqdm_iter.close()
@@ -413,18 +540,15 @@ def susie_multi_ss(
             )
             if np.any(s.sigma2 < 0):
                 print('minimum resdiual variance less than 0. Is there mismatch between the correlation matrix and association statistics?')
+
     elbo = elbo[1:i+2] # Remove first (infinite) entry, and trailing NAs.
     s.elbo = elbo
     s.niter = i+1
 
-
-
     if not s.converged:
         print('IBSS algorithm did not converge in %d iterations'%(max_iter))
         
-    s.intercept = np.zeros(len(XTX_list))
     s.fitted = s.Xr_list
-        
 
     s.pip = susie_get_pip(s, prior_tol=prior_tol)
     if standardize:
@@ -433,9 +557,10 @@ def susie_multi_ss(
     s.coef = np.array([np.squeeze(np.sum(s.mu[k] * s.alpha, axis=0) / csd[k, :]) for k in range(len(XTX_list))])
     s.coef_sd = np.array([(np.squeeze(np.sqrt(np.sum(s.alpha * s.mu2[k, k] - (s.alpha*s.mu[k])**2, axis=0)) / csd[k, :])) for k in range(len(XTX_list))])
 
-    if (low_memory_mode and min_abs_corr > 0) or (low_memory_mode and recover_R):
-        for i in range(len(R_list)):
-            recover_R_from_XTX(R_list[i], X_l2_arr[i])
+    if (low_memory_mode and (min_abs_corr > 0)) or (low_memory_mode and recover_R):
+        for i in range(len(XTX_list)):
+            recover_R_from_XTX(XTX_list[i], X_l2_arr[i])
+        R_list = XTX_list
 
     s.sets = susie_get_cs(
         s = s, R_list = R_list, coverage = coverage, min_abs_corr = min_abs_corr, 
@@ -448,7 +573,35 @@ def susie_multi_ss(
 def update_each_effect(
     XTX_list, XTY_list, s, X_l2_arr, w_pop, rho, inv_rho, logdet_rho,
     estimate_prior_variance=False, estimate_prior_method='optim',
-    check_null_threshold=0.0, verbose=False, pop_spec_effect_priors = False, float_type = np.float64):
+    check_null_threshold=0.0, pop_spec_effect_priors = False, float_type = np.float64):
+    """ Update each single effect regression
+
+    This calculates updated single effect regression parameter estimates
+
+    Parameters:
+    -----------
+    XTX_list: length K list of PxP numpy arrays representing the X^T X matrices
+    XTY_list: length K list of length P numpy arrays representing the X^T Y vectors
+    s: S object representing the model parameter estimates prior to the update
+    X_l2_arr: length K numpy array of floats representing the diagonal of X^T X
+    w_pop: length K numpy array of floats representing the relative size of each population
+    rho: PxP numpy array representing the effect size correlation matrix
+    inv_rho: PxP numpy array representing the inverse of the effect size correlation matrix
+    logdet_rho: float representing the log determinant of the effect size correlation matrix
+    estimate_prior_variance: boolean, whether to estimate effect size prior variance
+    estimate_prior_method: string, method to estimate the prior variance. Recommended
+        values are 'early_EM' or None
+    check_null_threshold: float representing the difference in loglikelihood that
+        a component with a non-zero effect size prior variance must beat the null
+        model by to be retained.
+    pop_spec_effect_priors: boolean, whether to estimate separate prior effect
+        size variances for each population
+    float_type: numpy float type used. Set to np.float32 to minimize memory
+
+    Returns:
+    -------
+    Nothing. S is modified in place.
+    """
 
         
     if not estimate_prior_variance:
@@ -458,15 +611,20 @@ def update_each_effect(
 
     for l in range(L):
         R_list = []
+
+        # add the estimate of the current effect back to the residualized
+        # XTXY vector
         for k in range(len(XTX_list)):
             s.Xr_list[k] -= XTX_list[k].dot(s.alpha[l] * s.mu[k,l])
             R_list.append(XTY_list[k] - s.Xr_list[k])
         
+        # get the currrent single effect model parameter estimates after 
+        # residualizing all other effects
         res = single_effect_regression(
             R_list, XTX_list, s.V[:,l], X_l2_arr, w_pop, rho, inv_rho, 
             logdet_rho, residual_variance=s.sigma2, prior_weights=s.pi,
             optimize_V=estimate_prior_method, 
-            check_null_threshold=check_null_threshold, verbose=verbose,
+            check_null_threshold=check_null_threshold, 
             pop_spec_effect_priors = pop_spec_effect_priors,
             alpha = s.alpha[l,:], mu2 = s.mu2[:,:,l,:],
             float_type = float_type
@@ -481,18 +639,58 @@ def update_each_effect(
         s.KL[l] = -res.lbf_model + SER_posterior_e_loglik(X_l2_arr, R_list, s.sigma2, res.mu * res.alpha, res.mu2[range(num_pop), range(num_pop)] * res.alpha)
         for k in range(len(XTX_list)):
             s.Xr_list[k] += XTX_list[k].dot(s.alpha[l] * s.mu[k,l])
-        
-    return s
 
 def single_effect_regression(
     XTY_list, XTX_list, V, X_l2_arr, w_pop, rho, inv_rho, logdet_rho,
     residual_variance, prior_weights=None, optimize_V=None, 
-    check_null_threshold=0, verbose=False, pop_spec_effect_priors = False,
+    check_null_threshold=0,  pop_spec_effect_priors = False,
     alpha = None, mu2 = None, float_type = np.float64):
+    """ Fit a multi-population single effect regression model
+
+    Parameters:
+    -----------
+    XTY_list: length K list of length P numpy arrays representing the X^T Y vectors
+    XTX_list: length K list of PxP numpy arrays representing the X^T X matrices
+    V: length K numpy array of floats representing the effect size prior variance
+    X_l2_arr: length K numpy array of floats representing the diagonal of X^T X
+    w_pop: length K numpy array of floats representing the relative size of each population
+    rho: PxP numpy array representing the effect size correlation matrix
+    inv_rho: PxP numpy array representing the inverse of the effect size correlation matrix
+    logdet_rho: float representing the log determinant of the effect size correlation matrix
+    residual_variance: length K numpy array of floats representing the residual 
+        variance in each population
+    prior_weights: length P numpy array of floats representing the prior probability
+        of causality for each variant
+    optimize_V: string representing the method to use to optimize the effect size
+    check_null_threshold: float representing the difference in loglikelihood that
+        a component with a non-zero effect size prior variance must beat the null
+        model by to be retained.
+    pop_spec_effect_priors: boolean, whether to estimate separate prior effect
+        size variances for each population
+    alpha: length P numpy array of floats representing the current posterior
+        inclusion probability estimates
+    mu2: K x K x P numpy array of floats representing the current posterior
+        second moment estimates
+    float_type: numpy float type used. Set to np.float32 to minimize memory
+
+    Returns:
+    -------
+    an object containing results with the following attributes:
+        alpha: length P numpy array of single effect regression posterior
+            inclusion probabilities
+        mu: K x P numpy array of single effect regression effect sizes conditional
+            on each variant being the causal variant
+        mu2: K x K x P numpy array of single effect regression effect size second
+            moments conditional on each variant being the causal variant
+        lbf: K x P numpy array representing the log Bayes factor for each 
+            variant being the causal variant
+        lbf_model: float representing the log Bayes factor for the model, 
+            aggregating over variants
+        V: length K numpy array of floats representing the effect size prior
+    """
     
-    #optimize V if needed (V is sigma_0^2 in the paper)
     compute_lbf_params = (XTY_list, XTX_list, X_l2_arr, rho, inv_rho, 
-        logdet_rho, residual_variance, False, verbose, float_type)
+        logdet_rho, residual_variance, False, float_type)
     if optimize_V not in ['EM', 'EM_corrected', None]:
         V = optimize_prior_variance(
             optimize_V, prior_weights, rho, 
@@ -502,22 +700,22 @@ def single_effect_regression(
             float_type = float_type
         )
         
-    #compute lbf (log Bayes-factors)
+    # compute the log Bayes factor for each variant being the causal variant 
+    # and posterior mean estimates for each variant  under the assumption 
+    # that it is the causal variant
     lbf, post_mean, post_mean2 = compute_lbf(
         V, XTY_list, XTX_list, X_l2_arr, rho, inv_rho, logdet_rho, 
-        residual_variance, return_moments=True, verbose=verbose,
+        residual_variance, return_moments=True, 
         float_type = float_type
     )
 
     
-    #compute alpha as defined in Appendix A.2
+    # compute posterior inclusion probabilities (not combined over single effect regressions)
     maxlbf = np.max(lbf)
     w = np.exp(lbf - maxlbf)
     w_weighted = w * prior_weights
     weighted_sum_w = w_weighted.sum()
     alpha = w_weighted / weighted_sum_w
-    
-    #compute log-likelihood (equation A.5)
     lbf_model = maxlbf + np.log(weighted_sum_w)
         
     if optimize_V in ['EM', 'EM_corrected']:
@@ -607,7 +805,7 @@ def loglik(V, prior_weights, compute_lbf_params):
 
 def compute_lbf(
     V, XTY_list, XTX_list, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, return_moments=False, verbose=False, 
+    residual_variance, return_moments=False,  
     float_type = np.float64):
     
     num_variables = XTX_list[0].shape[0]
@@ -629,7 +827,7 @@ def compute_lbf(
             [XTX_list[i] for i in nonzero_pops], 
             X_l2_arr[nonzero_pops], rho[nonzero_pops, :][:, nonzero_pops], None, None, 
             residual_variance[nonzero_pops], return_moments, 
-            verbose, float_type = float_type
+            float_type = float_type
         )
         if return_moments:
             post_mean = np.zeros((num_pops, num_variables), dtype=float_type)
@@ -646,19 +844,18 @@ def compute_lbf(
             try:
                 lbf, post_mean, post_mean2 = compute_lbf_and_moments(
                     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-                    residual_variance, verbose, float_type = float_type
+                    residual_variance, float_type = float_type
                 )
             except:
                 lbf, post_mean, post_mean2 = compute_lbf_and_moments_safe(
                     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-                    residual_variance, verbose, float_type = float_type
+                    residual_variance, float_type = float_type
                 )
         else:
             lbf = compute_lbf_no_moments(
                 V, XTY, X_l2_arr, rho, inv_rho, logdet_rho,
-                residual_variance, verbose, float_type = float_type
+                residual_variance, float_type = float_type
             )
-
     if return_moments:
         return lbf, post_mean, post_mean2
     else:
@@ -667,7 +864,7 @@ def compute_lbf(
 @numba.jit(nopython=True, cache=False)
 def compute_lbf_no_moments(
     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, verbose, float_type = np.float64):
+    residual_variance, float_type = np.float64):
     
     
     num_pops = XTY.shape[1]
@@ -704,11 +901,10 @@ def compute_lbf_no_moments(
         
     return lbf
 
-
 @numba.jit(nopython=True, cache=False)
 def compute_lbf_and_moments(
     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, verbose, float_type = np.float64):
+    residual_variance, float_type = np.float64):
 
     num_pops = XTY.shape[1]
     num_variables = XTY.shape[0]
@@ -753,7 +949,7 @@ def compute_lbf_and_moments(
 
 def compute_lbf_and_moments_safe(
     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, verbose, float_type = np.float64):
+    residual_variance, float_type = np.float64):
 
     num_pops = XTY.shape[1]
     num_variables = XTY.shape[0]
@@ -806,11 +1002,13 @@ def Eloglik(XTX_list, XTY_list, s, YTY_list, X_l2_arr):
     return result
 
 def update_ER2(XTX_list, XTY_list, YTY_list, s, X_l2_arr):
+    ER2 = np.zeros(len(XTX_list))
     for i in range(len(XTX_list)):
-        s.ER2[i] = get_ER2(
+        ER2[i] = get_ER2(
             XTX_list[i], XTY_list[i], YTY_list[i], s.alpha, s.mu[i], 
             s.mu2[i, i], X_l2_arr[i]
         )
+    return ER2
 
 def get_ER2(XTX, XTY, YTY, alpha, mu, mu2, X_l2):
     B = alpha * mu # beta should be lxp

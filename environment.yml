@@ -7,3 +7,4 @@ dependencies:
   - scipy>=1.4.1
   - numba>=0.51.2
   - tqdm
+  - jupyterlab
