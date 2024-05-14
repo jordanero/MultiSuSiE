@@ -17,7 +17,7 @@ git clone https://github.com/jordanero/MultiSuSiE
 cd MultiSuSiE
 conda env create -f environment.yml
 conda activate MultiSuSiE
-pip install .
+pip install . -U
 ```
 
 ### PIP
@@ -35,14 +35,16 @@ To install MultiSuSiE, activate the environment you'd like to install MultiSuSiE
 ```
 git clone https://github.com/jordanero/MultiSuSiE
 cd MultiSuSiE
-pip install .
+pip install . -U
 ```
 
 ### Executable
 
 (in progress)
 
-## Tutorial
+## Running MultiSuSiE
+
+The primary top-level MultiSuSie function is `susie_multi_rss`. `susie_multi_rss` accepts lists of numpy arrays containing GWAS summary statistics and LD matrices and performs the full fine-mapping algorithm. To see its full documentation, just start a Python session and type `import MultiSuSiE`, then `help(MultiSuSiES.susie_multi_rss)`. 
 
 The fastest way to get started is to check out (in progress, for now tests.py has an example with public HapMap3 data).
 
