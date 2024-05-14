@@ -83,8 +83,8 @@ def multisusie_rss(
 
     Parameters
     ----------
-    b_list: length K list of length P numpy arrays containing effect size 
-        standard errors, one for each population. Each array should correspond
+    b_list: length K list of length P numpy arrays containing effect sizes,
+        one for each population. Each array should correspond
         to the same set of P variants, in the same order. Variants that should
         not be included in a given population due to low MAF can be assigned a
         value of np.nan.
