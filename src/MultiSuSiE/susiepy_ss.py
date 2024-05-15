@@ -14,7 +14,7 @@ from scipy.optimize import minimize
 class S: 
     def __init__(
             self, pop_sizes, L, XTX_list, scaled_prior_variance, 
-            residual_variance, varY, prior_weights, float_type = np.float64):
+            residual_variance, varY, prior_weights, float_type = np.float32):
         
         #code from init_setup
         num_pop = len(pop_sizes)
@@ -74,8 +74,10 @@ def multisusie_rss(
     float_type = np.float32,
     low_memory_mode = False,
     recover_R = False,
-    mac_filter = 20,
-    maf_filter = 0
+    single_population_mac_thresh = 20,
+    mac_list = None,
+    multi_population_maf_thresh = 0,
+    maf_list = None,
     ):
     """ Top-level function for running MultiSuSiE
 
@@ -93,35 +95,40 @@ def multisusie_rss(
         important to censor low MAF variants in the population where they are rare. 
         This is done by setting values in z_list for these variants to 0, and 
         columns and rows corresponding to these variants to 0. multisusie_rss
-        will not do this for you in this case because it doesn't have access to 
-        the information that would allow us to approximate the minor allele 
-        frequency or minor allele count. It's also kind of weird to standardize
-        the genotypes within each population beacuse variants that are rare
-        in one population and common in other other will be assigned huge effect
-        sizes.
+        will not do this for you (but will with the first input combination) 
+        because it doesn't have access to the information that would allow us to 
+        approximate the minor allele frequency or minor allele count. 
+        It's also kind of weird to standardize the genotypes within each 
+        population beacuse variants that are rare in one population and common 
+        in other other will be assigned huge effect sizes.
 
-    b_list: length K list of length P numpy arrays containing effect sizes,
-        one for each population. Each array should correspond
-        to the same set of P variants, in the same order. Variants that should
-        not be included in a given population due to low MAF can be assigned a
-        value of np.nan.
-    s_list: length K list of length P numpy arrays containing effect size 
-        standard errors, one for each population. Each array should correspond
-        to the same set of P variants, in the same order. Variants that should
-        not be included in a given population due to low MAF can be assigned a
-        value of np.nan.
     R_list: length K list of PxP numpy arrays representing the LD correlation 
         matrices for each population. Each array should correspond
         to the same set of P variants, in the same order. Variants that should
         not be included in a given population due to low MAF can be assigned a
         value of np.nan.
+    population_sizes: list of integers representing the number of samples in
+        the GWAS for each population
+    b_list: length K list of length P numpy arrays containing effect sizes,
+        one for each population. Each array should correspond
+        to the same set of P variants, in the same order. Variants that should
+        not be included in a given population due to low MAF can be assigned a
+        value of np.nan. Provide exactly one of (b_list and s_list) and z_list.
+    s_list: length K list of length P numpy arrays containing effect size 
+        standard errors, one for each population. Each array should correspond
+        to the same set of P variants, in the same order. Variants that should
+        not be included in a given population due to low MAF can be assigned a
+        value of np.nan.Provide exactly one of (b_list and s_list) and z_list.
+    z_list: length K list of length P numpy arrays containing Z-scores, one for
+        each population. Each array should correspond to the same set of P
+        variants, in the same order. Variants that should not be included in a
+        given population due to low MAF can be assigned a value of np.nan.
+        Provide exactly one of (b_list and s_list) and z_list.
     varY_list: length K list representing the sample variance of the outcome
         in each population
     rho: PxP numpy array representing the effect size correlation matrix. In 
         the manuscript, we show that this parameter has little impact on the
         estimated PIPs in practice.
-    population_sizes: list of integers representing the number of samples in
-        the GWAS for each population
     L: integer representing the maximum number of causal variants
     scaled_prior_variance: float representing the effect size prior variance,
         scaled by the residual variance. It's fine to set this to a number 
@@ -135,8 +142,7 @@ def multisusie_rss(
     pop_spec_standardization: boolean, if standardize is True, whether to 
         adjust summary statistics to be as if genotypes were standardized
         separately for each population, or pooled and then standardized
-    estimate_residual_variance: boolean, whether to estimate the residual variance,
-        $\\sigma^2_k$ in the manuscript
+    estimate_residual_variance: boolean, whether to estimate the residual variance, $\\sigma^2_k$ in the manuscript
     estimate_prior_variance: boolean, whether to estimate the prior variance,
         $A^{(l)}$ in the manuscript
     estimate_prior_method: string, method to estimate the prior variance. Recommended
@@ -167,15 +173,28 @@ def multisusie_rss(
     recover_R: boolean, if True, the R matrices will be recovered from XTX, 
         BUT variants with MAC/MAF estimate less than mac_filter/maf_filter will
         be censored. 
-    mac_filter: float, if a variant has less than mac_filter minor alleles in a 
-        population it will be censored in that population, but will still be 
-        included with other populations. minor allele count is estimated under 
-        an assumption of Hardy-Weinberg equilibrium
-    maf_filter: float, if a variant has MAF less than maf_filter in a 
-        population it will be censored in that population, but will still be 
-        included with other populations. minor allele count is estimated under 
-        an assumption of Hardy-Weinberg equilibrium
-
+    single_population_mac_thresh: float, variants with minor allele count less
+        than this value in a single population will be censored in that population.
+        The variant will not be censored in the other populations. 
+        If mac_list is not None, mac_list is used for the filtering.
+        If mac_list is None, but maf_list is not, mac is caclulated using
+        maf_list and population_sizes. Otherwise, if mac_list is None, 
+        maf_list is None, and b_list and s_list are provided as input, then
+        minor allele counts will be estimated under an assumption of
+        Hardy-Weinberg equilibrium. 
+    mac_list: length K list of floats representing the minor allele count for
+        each variant in each population.
+    multi_population_maf_thresh: float, variants with minor allele frequency 
+        less than this value in ALL poopulations will be censored. Note that 
+        it's probably faster computationally to do this before calling this 
+        function. If maf_list is not None, maf_list is used for the filtering.
+        If maf_list is None, but mac_list is not, maf is caclulated using
+        mac_list and population_sizes. Otherwise, if maf_list is None, 
+        mac_list is None, and b_list and s_list are provided as input, then
+        minor allele frequencies will be estimated under an assumption of
+        Hardy-Weinberg equilibrium. 
+    maf_list: length K list of floats representing the minor allele frequency for
+        each variant in each population. 
     
     Returns
     -------
@@ -228,8 +247,6 @@ def multisusie_rss(
         assert len(b_list) == K
     else:
         assert len(z_list) == K
-        print('For Z-score based fine-mapping, please censor low MAF/MAC ' + \
-               'variants in z_list and R_list before passing to multisusie_rss')
     if varY_list is not None:
         assert len(varY_list) == K
     assert len(population_sizes) == K
@@ -243,10 +260,10 @@ def multisusie_rss(
             s_list_copy = s_list
         else:
             z_list_copy = z_list
-        print('low memory mode is on. THE INPUT R MATRICES HAVE BEEN ' + \
-            'TRANSFORMED INTO XTX AND CENSORED BASED ON MISSINGNESS. ' + \
-            'THE INPUT R MATRICES HAVE BEEN CHANGED. The datatypes of ' + \
-            'b_list, s_list, and R_list have been mutated in place ' + \
+        print('low memory mode is on. THE INPUT R MATRICES HAVE BEEN ' +
+            'TRANSFORMED INTO XTX AND CENSORED BASED ON MISSINGNESS. ' +
+            'THE INPUT R MATRICES HAVE BEEN CHANGED. The datatypes of ' +
+            'b_list, s_list, and R_list have been mutated in place ' +
             'to match float_type')
     else:
         R_list_copy = [np.copy(R) for R in R_list]
@@ -264,8 +281,8 @@ def multisusie_rss(
             if s_list_copy[i].dtype != float_type:
                 s_list_copy[i] = s_list_copy[i].astype(float_type, copy = False)
         else:
-            if z_list[i].dtype != float_type:
-                z_list[i] = z_list[i].astype(float_type, copy = False)
+            if z_list_copy[i].dtype != float_type:
+                z_list_copy[i] = z_list_copy[i].astype(float_type, copy = False)
         if R_list_copy[i].dtype != float_type:
             R_list_copy[i] = R_list_copy[i].astype(float_type, copy = False)
         if (not np.isscalar(rho)) and (rho.dtype != float_type):
@@ -288,19 +305,15 @@ def multisusie_rss(
     if z_list is None:
         for i in range(K):
             # this function mutates R_list_copy[i]
-            XTX, XTY, n_censored = recover_XTX_and_XTY(
+            XTX, XTY = recover_XTX_and_XTY(
                 b = b_list_copy[i],
                 s = s_list_copy[i],
                 R = R_list_copy[i],
                 YTY = YTY_list[i],
-                n = population_sizes[i],
-                mac_filter = mac_filter,
-                maf_filter = maf_filter
+                n = population_sizes[i]
             )
             XTX_list.append(XTX)
             XTY_list.append(XTY)
-            if n_censored > 0:
-                print('censored %d variants in population %d'%(n_censored, i))
     else:
         for i in range(K):
             # this function mutates R_list_copy[i]
@@ -313,12 +326,61 @@ def multisusie_rss(
             XTX_list.append(XTX)
             XTY_list.append(XTY)
 
+    # do minor allele count filtering for each population
+    if single_population_mac_thresh > 0:
+        for i in range(K):
+            n = population_sizes[i]
+            if mac_list is not None:
+                mac = np.minimum(mac_list[i], 2 * n - mac_list[i])
+            elif maf_list is not None:
+                mac = np.minimum(2 * n * maf_list[i], 2 * n - 2 * n * maf_list[i])
+            elif b_list is not None:
+                var_x = np.minimum(np.diag(XTX_list[i]) / (n - 1), .5) # this can be > .5 due to HWE violations?
+                maf = 1 / 2 - np.sqrt(1 - 2 * var_x) / 2
+                mac = np.minimum(2 * n * maf, 2 * n - 2 * n * maf)
+            else:
+                print(f'Skipping MAC filtering because mac_list is not provided,' +
+                      'maf_list is not provided, and z-scores are being used')
+                continue
+            low_mac_mask = mac < single_population_mac_thresh
+            XTX_list[i][low_mac_mask, :] = 0
+            XTX_list[i][:, low_mac_mask] = 0
+            XTY_list[i][low_mac_mask] = 0
+            print(f'Censored {np.sum(low_mac_mask)} variants in population {i}' +
+                  ' due to low population-specific MAC')
+
+    # do minor allele frequency filtering across populations. this filter
+    # only censors a variant if it has low MAF in all populations
+    if multi_population_maf_thresh > 0:
+        low_maf_across_populations_mask = np.ones(XTX_list[0].shape[0], dtype=bool)
+        for i in range(K):
+            n = population_sizes[i]
+            if maf_list is not None:
+                maf = np.minimum(maf_list[i], 1 - maf_list[i])
+            elif mac_list is not None:
+                maf = np.minimum(mac_list[i] / (2 * n), 1 - mac_list[i] / (2 * n))
+            elif b_list is not None:
+                var_x = np.minimum(np.diag(XTX_list[i]) / (n - 1), .5)
+                maf = 1 / 2 - np.sqrt(1 - 2 * var_x) / 2
+            else:
+                print(f'Skipping MAF filtering because mac_list is not provided,' +
+                      'maf_list is not provided, and z-scores are being used')
+            low_maf_across_populations_mask = low_maf_across_populations_mask & (maf < multi_population_maf_thresh)
+        print(f'Censored {np.sum(low_maf_across_populations_mask)} variants in' +
+            ' all populations due to low MAF across all populations')
+        for i in range(K):
+            XTX_list[i][low_maf_across_populations_mask, :] = 0
+            XTX_list[i][:, low_maf_across_populations_mask] = 0
+            XTY_list[i][low_maf_across_populations_mask] = 0
+
+
+
     if np.isscalar(rho):
         rho = np.ones((K, K), dtype=float_type) * rho
         rho[np.diag_indices(K)] = 1
     
     s = susie_multi_ss(
-        XTX_list = XTX_list, 
+        XTX_list = XTX_list,
         XTY_list = XTY_list, 
         YTY_list = YTY_list, 
         rho = rho, 
@@ -349,7 +411,7 @@ def multisusie_rss(
 
 susie_multi_rss = multisusie_rss
 
-def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
+def recover_XTX_and_XTY(b, s, R, YTY, n):
     """ Recover XTX and XTY from GWAS summary statistics. INPUT R IS MUTATED 
 
     THIS FUNCTION MUTATES INPUT R to reduce memory consumpation. BE CAREFUL!! 
@@ -362,8 +424,6 @@ def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
     R: PxP numpy array of floats representing the LD correlation matrix
     YTY: float representing the sample variance of the outcome,
     n: integer representing the number of samples in the GWAS
-    mac_filter: float representing the minimum minor allele count for a variant
-    maf_filter: float representing the minimum minor allele frequency for a variant
 
     Returns
     -------
@@ -381,16 +441,7 @@ def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
     R *=  np.sqrt(dR)
     np.nan_to_num(R, copy = False)
 
-    # Now we censor low MAF/MAC variants by approximating the MAF under HWE
-    maf_filter = np.maximum(maf_filter, mac_filter / (2 * n))
-    var_x = np.minimum(dR / (n - 1), .5) # this can be > .5 due to HWE violations?
-    maf = 1 / 2 - np.sqrt(1 - 2 * var_x) / 2
-    mask = maf < maf_filter
-    R[mask, :] = 0
-    R[:, mask] = 0
-    XTY[mask] = 0
-
-    return(R, XTY, np.sum(mask))
+    return(R, XTY)
 
 def recover_XTX_and_XTY_from_Z(z, R, n, float_type = np.float32):
     """ Recover XTX and XTY from z scores and LD correlation matrix
@@ -678,7 +729,7 @@ def susie_multi_ss(
 def update_each_effect(
     XTX_list, XTY_list, s, X_l2_arr, w_pop, rho, inv_rho, logdet_rho,
     estimate_prior_variance=False, estimate_prior_method='optim',
-    check_null_threshold=0.0, pop_spec_effect_priors = False, float_type = np.float64):
+    check_null_threshold=0.0, pop_spec_effect_priors = False, float_type = np.float32):
     """ Update each single effect regression
 
     This calculates updated single effect regression parameter estimates
@@ -749,7 +800,7 @@ def single_effect_regression(
     XTY_list, XTX_list, V, X_l2_arr, w_pop, rho, inv_rho, logdet_rho,
     residual_variance, prior_weights=None, optimize_V=None, 
     check_null_threshold=0,  pop_spec_effect_priors = False,
-    alpha = None, mu2 = None, float_type = np.float64):
+    alpha = None, mu2 = None, float_type = np.float32):
     """ Fit a multi-population single effect regression model
 
     Parameters:
@@ -840,7 +891,7 @@ def single_effect_regression(
 
 def optimize_prior_variance(
     optimize_V, prior_weights, rho, compute_lbf_params=None, alpha=None, post_mean2=None, w_pop=None, check_null_threshold=0, 
-    pop_spec_effect_priors = False, current_V = None, float_type = np.float64):
+    pop_spec_effect_priors = False, current_V = None, float_type = np.float32):
 
     K = rho.shape[0]
     if optimize_V == 'optim':
@@ -911,7 +962,7 @@ def loglik(V, prior_weights, compute_lbf_params):
 def compute_lbf(
     V, XTY_list, XTX_list, X_l2_arr, rho, inv_rho, logdet_rho, 
     residual_variance, return_moments=False,  
-    float_type = np.float64):
+    float_type = np.float32):
     
     num_variables = XTX_list[0].shape[0]
     num_pops = len(XTX_list)
@@ -969,7 +1020,7 @@ def compute_lbf(
 @numba.jit(nopython=True, cache=False)
 def compute_lbf_no_moments(
     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, float_type = np.float64):
+    residual_variance, float_type = np.float32):
     
     
     num_pops = XTY.shape[1]
@@ -1009,7 +1060,7 @@ def compute_lbf_no_moments(
 @numba.jit(nopython=True, cache=False)
 def compute_lbf_and_moments(
     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, float_type = np.float64):
+    residual_variance, float_type = np.float32):
 
     num_pops = XTY.shape[1]
     num_variables = XTY.shape[0]
@@ -1054,7 +1105,7 @@ def compute_lbf_and_moments(
 
 def compute_lbf_and_moments_safe(
     V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, float_type = np.float64):
+    residual_variance, float_type = np.float32):
 
     num_pops = XTY.shape[1]
     num_variables = XTY.shape[0]
@@ -1132,7 +1183,7 @@ def SER_posterior_e_loglik(X_l2_arr, XTY_list, s2, Eb, Eb2):
 
 def estimate_residual_variance_func(
         XTX_list, XTY_list, YTY_list, s, X_l2_arr, population_sizes, 
-        float_type = np.float64):
+        float_type = np.float32):
 
     sigma2_arr = np.zeros(len(XTX_list), dtype=float_type)
     for i in range(len(XTX_list)):
@@ -1206,3 +1257,4 @@ def recover_R_from_XTX(XTX, X_l2):
     with np.errstate(divide='ignore', invalid = 'ignore'):
         XTX /= np.sqrt(np.nan_to_num(X_l2, 1))
         XTX /= np.sqrt(np.expand_dims(np.nan_to_num(X_l2, 1), 1))
+

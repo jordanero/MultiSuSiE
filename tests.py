@@ -58,8 +58,7 @@ ss_fit = MultiSuSiE.multisusie_rss(
     estimate_prior_method = 'EM',
     pop_spec_effect_priors = False,
     iter_before_zeroing_effects = 0,
-    mac_filter = 0,
-    maf_filter = 0
+    single_population_mac_thresh = 0,
 )
 indiv_fit = MultiSuSiE.multisusie(
     X_list = geno_list,
@@ -88,7 +87,7 @@ ss_fit = MultiSuSiE.multisusie_rss(
     population_sizes = N_list,
     L = 10,
     scaled_prior_variance = 0.2,
-    mac_filter = 5,
+    single_population_mac_thresh = 5,
     low_memory_mode = False,
     min_abs_corr = 0
 )
@@ -105,14 +104,12 @@ R_list_copy = [R.copy() for R in R_list]
 XTX_list = []
 XTY_list = []
 for i in range(len(R_list)):
-    XTX, XTY, n_censored = MultiSuSiE.recover_XTX_and_XTY(
+    XTX, XTY = MultiSuSiE.recover_XTX_and_XTY(
         beta_hat_list[i],
         se_list[i],
         R_list_copy[i],
         varY_list[i],
-        N_list[i],
-        mac_filter = 0,
-        maf_filter = 0
+        N_list[i]
     )
     XTX_list.append(XTX)
     XTY_list.append(XTY)
@@ -125,7 +122,8 @@ assert(all([np.nanmax(np.abs(R - XTX)) < 1e-10 for (R, XTX) in zip(R_list, XTX_l
 
 # TEST 4: test that recover_XTX_and_XTY_from_Z recovers XTX and XTY with standardized genotypes and pehnotypes
 z_list = [b/s for (b,s) in zip(beta_hat_list, se_list)]
-geno_std_list = [geno / np.std(geno, axis = 0, ddof = 1) for geno in geno_list]
+with np.errstate(divide='ignore',invalid='ignore'):
+    geno_std_list = [geno / np.std(geno, axis = 0, ddof = 1) for geno in geno_list]
 y_std_list = [y / np.std(y, ddof = 1) for y in y_list]
 XTX_std_list = [geno.T.dot(geno) for geno in geno_std_list]
 XTY_std_list = [geno.T.dot(pheno) for (geno, pheno) in zip(geno_std_list, y_std_list)]
@@ -134,7 +132,8 @@ for i in range(len(z_list)):
     XTX, XTY = MultiSuSiE.recover_XTX_and_XTY_from_Z(
         z = z_list[i], 
         R = np.copy(R_list[i]),
-        n = N_list[i]
+        n = N_list[i],
+        float_type = np.float64
     )
     assert(np.nanmax(np.abs(np.nan_to_num(XTX, 0) - XTX_std_list[i])) < 1e-10)
     assert(np.nanmax(np.abs(np.nan_to_num(XTY, 0) - XTY_std_list[i])) < 1e-10)
