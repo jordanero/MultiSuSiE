@@ -48,12 +48,13 @@ class SER_RESULTS:
         self.lbf_model = lbf_model
 
 def multisusie_rss(
-    b_list,
-    s_list,
     R_list,
-    varY_list,
-    rho,
     population_sizes,
+    b_list = None,
+    s_list = None,
+    z_list = None,
+    varY_list = None,
+    rho = 0.75,
     L = 10,
     scaled_prior_variance=0.2,
     prior_weights=None,
@@ -83,6 +84,22 @@ def multisusie_rss(
 
     Parameters
     ----------
+    multisusie_rss accepts two combinations of input parameters:
+    1. b_list, s_list, R_list, varY_list, rho, population_sizes
+        This is the preferred input format and is used in the MultiSuSiE paper.
+    2. z_list, R_list, rho, population_sizes
+        Here, we assume that both the genotypes and phenotypes have been 
+        standardized to have variance 1 within each population.  It's extremely 
+        important to censor low MAF variants in the population where they are rare. 
+        This is done by setting values in z_list for these variants to 0, and 
+        columns and rows corresponding to these variants to 0. multisusie_rss
+        will not do this for you in this case because it doesn't have access to 
+        the information that would allow us to approximate the minor allele 
+        frequency or minor allele count. It's also kind of weird to standardize
+        the genotypes within each population beacuse variants that are rare
+        in one population and common in other other will be assigned huge effect
+        sizes.
+
     b_list: length K list of length P numpy arrays containing effect sizes,
         one for each population. Each array should correspond
         to the same set of P variants, in the same order. Variants that should
@@ -184,7 +201,6 @@ def multisusie_rss(
 
     TODO
     ----
-        - think about consequences of standardizing Y
         - Add command line interface
         - Add more tests, probably based on tests used for SuSiER
         - Make defaults match between sufficient statistic and summary statistic
@@ -192,19 +208,41 @@ def multisusie_rss(
         - Implement missing functionality for individual-level multisusie
     """
 
-    K = len(b_list)
-    assert len(s_list) == K
-    assert len(R_list) == K
-    assert len(varY_list) == K
+    
+    # provide exactly one of (b_list and s_list) and z_list
+    if (z_list is not None) & ((b_list is not None) or (s_list is not None)):
+        raise ValueError('provide either (b_list and s_list) or z_list, but not both. ' + \
+                         'See the parameters section of help(multisusie_rss) for more information')
+    if (z_list is None) & (b_list is None) & (s_list is None):
+        raise ValueError('provide either (b_list and s_list) or z_list, but not both')
+    if (b_list is not None) & ((s_list is None) | (varY_list is None)):
+        raise ValueError('if b_list is provided, s_list and varY_list must also be provided')
+    if population_sizes is None:
+        raise ValueError('population_sizes must be provided')
+
+
+    # check input list lengths
+    K = len(R_list)
+    if z_list is None:
+        assert len(s_list) == K
+        assert len(b_list) == K
+    else:
+        assert len(z_list) == K
+        print('For Z-score based fine-mapping, please censor low MAF/MAC ' + \
+               'variants in z_list and R_list before passing to multisusie_rss')
+    if varY_list is not None:
+        assert len(varY_list) == K
     assert len(population_sizes) == K
     assert np.isscalar(rho) | ((rho.shape[0] == K) & (rho.shape[1] == K))
-    
 
     # make copies of R if low_memory_mode=False to avoid modifying the input data 
     if low_memory_mode:
         R_list_copy = R_list
-        b_list_copy = b_list
-        s_list_copy = s_list
+        if z_list is None:
+            b_list_copy = b_list
+            s_list_copy = s_list
+        else:
+            z_list_copy = z_list
         print('low memory mode is on. THE INPUT R MATRICES HAVE BEEN ' + \
             'TRANSFORMED INTO XTX AND CENSORED BASED ON MISSINGNESS. ' + \
             'THE INPUT R MATRICES HAVE BEEN CHANGED. The datatypes of ' + \
@@ -212,44 +250,68 @@ def multisusie_rss(
             'to match float_type')
     else:
         R_list_copy = [np.copy(R) for R in R_list]
-        b_list_copy = [np.copy(b) for b in b_list]
-        s_list_copy = [np.copy(s) for s in s_list]
+        if z_list is None:
+            b_list_copy = [np.copy(b) for b in b_list]
+            s_list_copy = [np.copy(s) for s in s_list]
+        else:
+            z_list_copy = [np.copy(z) for z in z_list]
 
     # convert everything to the requested float type if necessary
     for i in range(K):
-        if b_list_copy[i].dtype != float_type:
-            b_list_copy[i] = b_list_copy[i].astype(float_type, copy = False)
-        if s_list_copy[i].dtype != float_type:
-            s_list_copy[i] = s_list_copy[i].astype(float_type, copy = False)
+        if z_list is None:
+            if b_list_copy[i].dtype != float_type:
+                b_list_copy[i] = b_list_copy[i].astype(float_type, copy = False)
+            if s_list_copy[i].dtype != float_type:
+                s_list_copy[i] = s_list_copy[i].astype(float_type, copy = False)
+        else:
+            if z_list[i].dtype != float_type:
+                z_list[i] = z_list[i].astype(float_type, copy = False)
         if R_list_copy[i].dtype != float_type:
             R_list_copy[i] = R_list_copy[i].astype(float_type, copy = False)
         if (not np.isscalar(rho)) and (rho.dtype != float_type):
             rho = rho.astype(float_type, copy = True)
 
     population_sizes = np.array(population_sizes, dtype = float_type)
-    varY_list = np.array(varY_list, dtype = float_type)
+    if varY_list is None:
+        varY_list = np.ones(K, dtype = float_type)
+    else:
+        varY_list = np.array(varY_list, dtype = float_type)
+    YTY_list = []
+    for i in range(K):
+        YTY = (varY_list[i] * (population_sizes[i] - 1)).astype(float_type)
+        YTY_list.append(YTY)
 
 
     # convert GWAS summary statistics to MultiSuSiE sufficient statistics
     XTX_list = []
     XTY_list = []
-    YTY_list = []
-    for i in range(K):
-        YTY = (varY_list[i] * (population_sizes[i] - 1)).astype(float_type)
-        XTX, XTY, n_censored = recover_XTX_and_XTY(
-            b = b_list_copy[i],
-            s = s_list_copy[i],
-            R = R_list_copy[i],
-            YTY = YTY,
-            n = population_sizes[i],
-            mac_filter = mac_filter,
-            maf_filter = maf_filter
-        )
-        XTX_list.append(XTX)
-        XTY_list.append(XTY)
-        YTY_list.append(YTY)
-        if n_censored > 0:
-            print('censored %d variants in population %d'%(n_censored, i))
+    if z_list is None:
+        for i in range(K):
+            # this function mutates R_list_copy[i]
+            XTX, XTY, n_censored = recover_XTX_and_XTY(
+                b = b_list_copy[i],
+                s = s_list_copy[i],
+                R = R_list_copy[i],
+                YTY = YTY_list[i],
+                n = population_sizes[i],
+                mac_filter = mac_filter,
+                maf_filter = maf_filter
+            )
+            XTX_list.append(XTX)
+            XTY_list.append(XTY)
+            if n_censored > 0:
+                print('censored %d variants in population %d'%(n_censored, i))
+    else:
+        for i in range(K):
+            # this function mutates R_list_copy[i]
+            XTX, XTY = recover_XTX_and_XTY_from_Z(
+                z = z_list_copy[i],
+                R = R_list_copy[i],
+                n = population_sizes[i],
+                float_type = float_type
+            )
+            XTX_list.append(XTX)
+            XTY_list.append(XTY)
 
     if np.isscalar(rho):
         rho = np.ones((K, K), dtype=float_type) * rho
@@ -330,10 +392,11 @@ def recover_XTX_and_XTY(b, s, R, YTY, n, mac_filter  = 0, maf_filter = 0):
 
     return(R, XTY, np.sum(mask))
 
-def recover_XTX_and_XTY_from_Z(z, R, n):
+def recover_XTX_and_XTY_from_Z(z, R, n, float_type = np.float32):
     """ Recover XTX and XTY from z scores and LD correlation matrix
 
-    This should be equivalent to SuSiE using standardized genotype and phenotype
+    THIS FUNCTION MUTATES INPUT R to reduce memory consumpation. BE CAREFUL!! 
+    This is equivalent to using standardized genotype and phenotype
 
     Parameters
     ----------
@@ -347,11 +410,13 @@ def recover_XTX_and_XTY_from_Z(z, R, n):
     XTY: length-P numpy array representing the X^T Y vector
     """
     adj = (n - 1) / (z ** 2 + n - 2)
-    z = sqrt(adj) * z
-    XTX *= (n - 1)
-    XTY = sqrt(n - 1) * z
+    z = np.sqrt(adj) * z
+    R *= (n - 1)
+    XTY = (np.sqrt(n - 1) * z).astype(float_type)
+    np.nan_to_num(XTY, copy = False)
+    np.nan_to_num(R, copy = False)
 
-    return XTX, XTY
+    return R, XTY
 
 def susie_multi_ss(
     XTX_list, XTY_list, YTY_list,

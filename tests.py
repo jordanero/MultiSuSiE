@@ -122,4 +122,23 @@ for i in range(len(XTX_list)):
     MultiSuSiE.recover_R_from_XTX(XTX_list[i], X_l2_arr[i])
 assert(all([np.nanmax(np.abs(R - XTX)) < 1e-10 for (R, XTX) in zip(R_list, XTX_list)]))
 
+
+# TEST 4: test that recover_XTX_and_XTY_from_Z recovers XTX and XTY with standardized genotypes and pehnotypes
+z_list = [b/s for (b,s) in zip(beta_hat_list, se_list)]
+geno_std_list = [geno / np.std(geno, axis = 0, ddof = 1) for geno in geno_list]
+y_std_list = [y / np.std(y, ddof = 1) for y in y_list]
+XTX_std_list = [geno.T.dot(geno) for geno in geno_std_list]
+XTY_std_list = [geno.T.dot(pheno) for (geno, pheno) in zip(geno_std_list, y_std_list)]
+
+for i in range(len(z_list)):
+    XTX, XTY = MultiSuSiE.recover_XTX_and_XTY_from_Z(
+        z = z_list[i], 
+        R = np.copy(R_list[i]),
+        n = N_list[i]
+    )
+    assert(np.nanmax(np.abs(np.nan_to_num(XTX, 0) - XTX_std_list[i])) < 1e-10)
+    assert(np.nanmax(np.abs(np.nan_to_num(XTY, 0) - XTY_std_list[i])) < 1e-10)
+
 print('No tests failed!')
+
+
