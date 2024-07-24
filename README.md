@@ -48,7 +48,7 @@ pip install . -U
 
 The primary top-level MultiSuSie function is `multisusie_rss`. `multisusie_rss` accepts lists of numpy arrays containing GWAS summary statistics and LD matrices and performs the full fine-mapping algorithm. To see its full documentation, just start a Python session and type `import MultiSuSiE`, then `help(MultiSuSiES.multisusie_rss)`. 
 
-The fastest way to get started is probably to check out [the example](https://github.com/jordanero/MultiSuSiE/blob/main/examples/example.ipynb), but we'll discuss the most important arguments for `multisusie_rss` at a high level below. Note that we'll denote the number of ancestries as K and number of variants as P.  
+The fastest way to get started is probably to check out [the example](https://github.com/jordanero/MultiSuSiE/blob/main/examples/example.ipynb) (seems like there are currently issues rendering .ipynb files on github, so if you get an error view the pdf in the same directory), but we'll discuss the most important arguments for `multisusie_rss` at a high level below. Note that we'll denote the number of ancestries as K and number of variants as P.  
 
 - b_list is a length K list (one per population) of length P numpy arrays representing GWAS effect sizes for each variant considered.
 - s_list is a length K list (one per population) of length P numpy arrays representing GWAS effect size standard errors for each variant considered.
