@@ -56,19 +56,18 @@ def multisusie_rss(
     varY_list = None,
     rho = 0.75,
     L = 10,
-    scaled_prior_variance=0.2,
-    prior_weights=None,
-    standardize = False,
-    pop_spec_standardization = False,
-    estimate_residual_variance=True,
-    estimate_prior_variance=True,
-    estimate_prior_method='early_EM',
+    scaled_prior_variance = 0.2,
+    prior_weights = None,
+    standardize = False, pop_spec_standardization = True,
+    estimate_residual_variance = True,
+    estimate_prior_variance = True,
+    estimate_prior_method = 'early_EM',
     pop_spec_effect_priors = True,
     iter_before_zeroing_effects = 5,
-    prior_tol=1e-9,
-    max_iter=100,
-    tol=1e-3,
-    verbose=False,
+    prior_tol = 1e-9,
+    max_iter = 100,
+    tol = 1e-3,
+    verbose = False,
     coverage = 0.95,
     min_abs_corr = 0,
     float_type = np.float32,
@@ -607,8 +606,6 @@ def susie_multi_ss(
         if not pop_spec_standardization:
             csd = csd.T.dot(w_pop)
             csd = csd * np.ones((len(XTX_list), csd.shape[0]), dtype = float_type)
-        is_constant_column = np.isclose(csd, 0.0)
-        csd[is_constant_column] = 1.0
         for pop_i in range(len(XTX_list)):
             XTX_list[pop_i] *= (1 / csd[pop_i, :])
             XTX_list[pop_i] *= (1 / np.expand_dims(csd[pop_i, :], 1))
@@ -707,9 +704,6 @@ def susie_multi_ss(
     s.fitted = s.Xr_list
 
     s.pip = susie_get_pip(s, prior_tol=prior_tol)
-    if standardize:
-        s.X_column_scale_factors = csd.copy()
-        s.X_column_scale_factors[is_constant_column] = 0.0
     s.coef = np.array([np.squeeze(np.sum(s.mu[k] * s.alpha, axis=0) / csd[k, :]) for k in range(len(XTX_list))])
     s.coef_sd = np.array([(np.squeeze(np.sqrt(np.sum(s.alpha * s.mu2[k, k] - (s.alpha*s.mu[k])**2, axis=0)) / csd[k, :])) for k in range(len(XTX_list))])
 
@@ -1200,10 +1194,12 @@ def susie_get_pip(s, prior_tol=1e-9):
 
 def susie_get_cs(
     s, R_list, coverage = 0.95, min_abs_corr = 0.5, dedup = True, n_purity = 100,
-    calculate_purity = True):
+    calculate_purity = True, X_list = None):
 
-
-    include_mask = np.any(s.V > 1e-9, axis = 0)
+    if len(s.V.shape) == 2:
+        include_mask = np.any(s.V > 1e-9, axis = 0)
+    else:
+        include_mask = s.V > 1e-9
 
     status = in_CS(s.alpha, coverage)
     cs = [np.argwhere(status[i, :] == 1).flatten() for i in range(status.shape[0])]
@@ -1222,7 +1218,7 @@ def susie_get_cs(
         return ([[] for i in range(len(include_mask))], None, None, include_mask)
 
     if calculate_purity:
-        purity = np.array([get_purity_x(cs[i], R_list, min_abs_corr, n_purity) if include_mask[i] else np.NaN for i in range(len(cs))])
+        purity = np.array([get_purity_x(cs[i], R_list, min_abs_corr, n_purity, X_list) if include_mask[i] else np.NaN for i in range(len(cs))])
         include_mask[purity < min_abs_corr] = False
     else:
         purity = np.array([np.NaN for i in range(len(cs))])
@@ -1245,10 +1241,15 @@ def n_in_CS(alpha, coverage):
 def n_in_CS_x(alpha, coverage):
     return np.sum(np.cumsum(np.sort(alpha)[::-1]) < coverage) + 1
 
-def get_purity_x(cs, R_list, min_abs_cor, n_purity):
+def get_purity_x(cs, R_list, min_abs_cor, n_purity, X_list):
     if len(cs) > n_purity:
         cs = random.sample(cs.tolist(), n_purity)
-    abs_meta_R = functools.reduce(np.maximum, [np.abs(R[cs, :][:, cs]) for R in R_list])
+    if R_list is None:
+        R_list = [np.corrcoef(X_list[i][:,cs], rowvar = False) for i in range(len(X_list))]
+    else:
+        R_list = [R[cs, :][:, cs] for R in R_list]
+    abs_meta_R = functools.reduce(np.maximum, [np.abs(R) for R in R_list])
+
     return np.min(abs_meta_R)
 
 def recover_R_from_XTX(XTX, X_l2):
