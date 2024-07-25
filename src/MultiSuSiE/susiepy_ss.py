@@ -58,7 +58,8 @@ def multisusie_rss(
     L = 10,
     scaled_prior_variance = 0.2,
     prior_weights = None,
-    standardize = False, pop_spec_standardization = True,
+    standardize = False, 
+    pop_spec_standardization = True,
     estimate_residual_variance = True,
     estimate_prior_variance = True,
     estimate_prior_method = 'early_EM',
@@ -594,7 +595,6 @@ def susie_multi_ss(
     
     #compute rho properties
     rho = rho.astype(float_type)
-    inv_rho = la.inv(rho).astype(float_type)
     logdet_rho_sign, logdet_rho = np.linalg.slogdet(rho)
     assert logdet_rho_sign>0
 
@@ -666,7 +666,7 @@ def susie_multi_ss(
         # update all L single effect regressions. s is modified in place.
         update_each_effect(
             XTX_list, XTY_list, s, X_l2_arr, w_pop,
-            rho, inv_rho, logdet_rho,
+            rho,
             estimate_prior_variance, current_estimate_prior_method,
             check_null_threshold = current_check_null_threshold,
             pop_spec_effect_priors = pop_spec_effect_priors,
@@ -681,6 +681,7 @@ def susie_multi_ss(
         elbo[i+1] = get_objective(XTX_list, XTY_list, s, YTY_list, X_l2_arr)
         if verbose:
             print('objective: %s'%(elbo[i+1]))
+
         if ((elbo[i+1] - elbo[i]) < tol) and (i >= (iter_before_zeroing_effects + 1)):
             s.converged = True
             tqdm_iter.close()
@@ -721,9 +722,9 @@ def susie_multi_ss(
     return s
 
 def update_each_effect(
-    XTX_list, XTY_list, s, X_l2_arr, w_pop, rho, inv_rho, logdet_rho,
+    XTX_list, XTY_list, s, X_l2_arr, w_pop, rho,
     estimate_prior_variance=False, estimate_prior_method='optim',
-    check_null_threshold=0.0, pop_spec_effect_priors = False, float_type = np.float32):
+    check_null_threshold=0.0, pop_spec_effect_priors = True, float_type = np.float32):
     """ Update each single effect regression
 
     This calculates updated single effect regression parameter estimates
@@ -736,8 +737,6 @@ def update_each_effect(
     X_l2_arr: length K numpy array of floats representing the diagonal of X^T X
     w_pop: length K numpy array of floats representing the relative size of each population
     rho: PxP numpy array representing the effect size correlation matrix
-    inv_rho: PxP numpy array representing the inverse of the effect size correlation matrix
-    logdet_rho: float representing the log determinant of the effect size correlation matrix
     estimate_prior_variance: boolean, whether to estimate effect size prior variance
     estimate_prior_method: string, method to estimate the prior variance. Recommended
         values are 'early_EM' or None
@@ -771,8 +770,8 @@ def update_each_effect(
         # get the currrent single effect model parameter estimates after 
         # residualizing all other effects
         res = single_effect_regression(
-            R_list, XTX_list, s.V[:,l], X_l2_arr, w_pop, rho, inv_rho, 
-            logdet_rho, residual_variance=s.sigma2, prior_weights=s.pi,
+            R_list, XTX_list, s.V[:,l], X_l2_arr, w_pop, rho,
+            residual_variance=s.sigma2, prior_weights=s.pi,
             optimize_V=estimate_prior_method, 
             check_null_threshold=check_null_threshold, 
             pop_spec_effect_priors = pop_spec_effect_priors,
@@ -791,9 +790,9 @@ def update_each_effect(
             s.Xr_list[k] += XTX_list[k].dot(s.alpha[l] * s.mu[k,l])
 
 def single_effect_regression(
-    XTY_list, XTX_list, V, X_l2_arr, w_pop, rho, inv_rho, logdet_rho,
+    XTY_list, XTX_list, V, X_l2_arr, w_pop, rho,
     residual_variance, prior_weights=None, optimize_V=None, 
-    check_null_threshold=0,  pop_spec_effect_priors = False,
+    check_null_threshold=0,  pop_spec_effect_priors = True,
     alpha = None, mu2 = None, float_type = np.float32):
     """ Fit a multi-population single effect regression model
 
@@ -805,8 +804,6 @@ def single_effect_regression(
     X_l2_arr: length K numpy array of floats representing the diagonal of X^T X
     w_pop: length K numpy array of floats representing the relative size of each population
     rho: PxP numpy array representing the effect size correlation matrix
-    inv_rho: PxP numpy array representing the inverse of the effect size correlation matrix
-    logdet_rho: float representing the log determinant of the effect size correlation matrix
     residual_variance: length K numpy array of floats representing the residual 
         variance in each population
     prior_weights: length P numpy array of floats representing the prior probability
@@ -839,11 +836,12 @@ def single_effect_regression(
         V: length K numpy array of floats representing the effect size prior
     """
     
-    compute_lbf_params = (XTY_list, XTX_list, X_l2_arr, rho, inv_rho, 
-        logdet_rho, residual_variance, False, float_type)
+    compute_lbf_params = (XTY_list, XTX_list, X_l2_arr, rho,
+        residual_variance, False, float_type)
+
     if optimize_V not in ['EM', 'EM_corrected', None]:
         V = optimize_prior_variance(
-            optimize_V, prior_weights, rho, 
+            optimize_V, prior_weights, rho.shape[0], 
             compute_lbf_params=compute_lbf_params, alpha=alpha, post_mean2=mu2, 
             w_pop=w_pop, check_null_threshold=check_null_threshold, 
             pop_spec_effect_priors = pop_spec_effect_priors, current_V = V,
@@ -854,8 +852,8 @@ def single_effect_regression(
     # and posterior mean estimates for each variant  under the assumption 
     # that it is the causal variant
     lbf, post_mean, post_mean2 = compute_lbf(
-        V, XTY_list, XTX_list, X_l2_arr, rho, inv_rho, logdet_rho, 
-        residual_variance, return_moments=True, 
+        V = V, XTY_list = XTY_list, XTX_list = XTX_list, X_l2_arr = X_l2_arr, 
+        rho = rho, residual_variance = residual_variance, return_moments=True, 
         float_type = float_type
     )
 
@@ -870,7 +868,7 @@ def single_effect_regression(
         
     if optimize_V in ['EM', 'EM_corrected']:
         V = optimize_prior_variance(
-            optimize_V, prior_weights, rho, 
+            optimize_V, prior_weights, rho.shape[0], 
             compute_lbf_params=compute_lbf_params, alpha=alpha, 
             post_mean2=post_mean2, w_pop=w_pop, 
             check_null_threshold=check_null_threshold, 
@@ -883,22 +881,30 @@ def single_effect_regression(
 
     return res
 
-def optimize_prior_variance(
-    optimize_V, prior_weights, rho, compute_lbf_params=None, alpha=None, post_mean2=None, w_pop=None, check_null_threshold=0, 
-    pop_spec_effect_priors = False, current_V = None, float_type = np.float32):
+def loglik(V, prior_weights, compute_lbf_params):
+    lbf = compute_lbf(V, *compute_lbf_params)
+    maxlbf = np.max(lbf)
+    w = np.exp(lbf - maxlbf)
+    w_weighted = w * prior_weights
+    weighted_sum_w = w_weighted.sum()
+    loglik = maxlbf + np.log(weighted_sum_w)
+    return loglik
 
-    K = rho.shape[0]
+def optimize_prior_variance(
+    optimize_V, prior_weights, num_pops, compute_lbf_params=None, alpha=None, post_mean2=None, w_pop=None, check_null_threshold=0, 
+    pop_spec_effect_priors = False, current_V = None, float_type = np.float32, loglik_function = loglik):
+
     if optimize_V == 'optim':
         if pop_spec_effect_priors:
             raise Exception('estimate_prior_method="optim" with ' +
                             'pop_spec_effect_priors=True has not been implemented')
         else:
-            neg_loglik_logscale = lambda lV: -loglik(np.array([np.exp(lV) for i in range(K)]), prior_weights, compute_lbf_params)
+            neg_loglik_logscale = lambda lV: -loglik_function(np.array([np.exp(lV) for i in range(num_pops)]), prior_weights, compute_lbf_params)
             opt_obj = minimize_scalar(neg_loglik_logscale, bounds=(-30,15))
             lV = opt_obj.x
             V = np.exp(lV)
     elif optimize_V in ['EM', 'early_EM']:
-        V = np.array([np.sum(alpha * post_mean2[i, i]) for i in range(K)], dtype=float_type)
+        V = np.array([np.sum(alpha * post_mean2[i, i]) for i in range(num_pops)], dtype=float_type)
         if not pop_spec_effect_priors:
             V = (w_pop.dot(V)).astype(float_type)
     elif optimize_V == 'grid':
@@ -907,7 +913,7 @@ def optimize_prior_variance(
                             'pop_spec_effect_priors=True has not been implemented')
         else:
             V_arr = np.logspace(-7, -1, 13)
-            llik_arr = np.array([loglik(V, prior_weights, compute_lbf_params) for V in V_arr])
+            llik_arr = np.array([loglik_function(V, prior_weights, compute_lbf_params) for V in V_arr])
             V = V_arr[np.argmax(llik_arr)]
     else:
         raise ValueError('unknown optimization method')
@@ -915,7 +921,7 @@ def optimize_prior_variance(
     if not pop_spec_effect_priors:
         V = V * np.ones(post_mean2.shape[0], dtype = float_type)
         # set V exactly 0 if that beats the numerical value by check_null_threshold in loglik.
-        delta_loglik = loglik(0, prior_weights, compute_lbf_params) + check_null_threshold - loglik(V, prior_weights, compute_lbf_params)
+        delta_loglik = loglik_function(0, prior_weights, compute_lbf_params) + check_null_threshold - loglik_function(V, prior_weights, compute_lbf_params)
         if np.isclose(delta_loglik, 0) or delta_loglik >= 0:
             V=0
     else:
@@ -927,13 +933,13 @@ def optimize_prior_variance(
         else:
             V_list = [V]
             # zero out each population, one at a time
-            for i in range(K):
+            for i in range(num_pops):
                 if not np.isclose(V[i],0):
                     V_copy = V.copy()
                     V_copy[i] = 0
                     V_list.append(V_copy)
-            V_list.append(np.array([np.zeros(K, dtype=float_type)]))
-        llik_arr = np.array([loglik(np.array(V), prior_weights, compute_lbf_params) for V in V_list])
+            V_list.append(np.array([np.zeros(num_pops, dtype=float_type)]))
+        llik_arr = np.array([loglik_function(np.array(V), prior_weights, compute_lbf_params) for V in V_list])
         llik_arr = llik_arr + np.array([0] + [check_null_threshold for i in range(len(V_list) - 1)])
         V = V_list[np.argmax(llik_arr)]
     if isinstance(V, np.ndarray):
@@ -941,20 +947,11 @@ def optimize_prior_variance(
     elif V < 0:
         V = 0
 
-
     return V
 
-def loglik(V, prior_weights, compute_lbf_params):
-    lbf = compute_lbf(V, *compute_lbf_params)
-    maxlbf = np.max(lbf)
-    w = np.exp(lbf - maxlbf)
-    w_weighted = w * prior_weights
-    weighted_sum_w = w_weighted.sum()
-    loglik = maxlbf + np.log(weighted_sum_w)
-    return loglik
 
 def compute_lbf(
-    V, XTY_list, XTX_list, X_l2_arr, rho, inv_rho, logdet_rho, 
+    V, XTY_list, XTX_list, X_l2_arr, rho,
     residual_variance, return_moments=False,  
     float_type = np.float32):
     
@@ -962,8 +959,6 @@ def compute_lbf(
     num_pops = len(XTX_list)
 
     if np.all(np.isclose(V, 0)):
-        num_pops = len(XTY_list)
-        num_variables = len(XTY_list[0])
         lbf = np.zeros(num_variables, dtype=float_type)
         if return_moments:
             post_mean = np.zeros((num_pops, num_variables), dtype=float_type)
@@ -972,11 +967,13 @@ def compute_lbf(
     elif np.any(np.isclose(V, 0)):
         nonzero_pops = np.flatnonzero(~np.isclose(V, 0))
         lbf_out = compute_lbf(
-            V[nonzero_pops], 
-            [XTY_list[i] for i in nonzero_pops], 
-            [XTX_list[i] for i in nonzero_pops], 
-            X_l2_arr[nonzero_pops], rho[nonzero_pops, :][:, nonzero_pops], None, None, 
-            residual_variance[nonzero_pops], return_moments, 
+            V = V[nonzero_pops], 
+            XTY_list = [XTY_list[i] for i in nonzero_pops], 
+            XTX_list = [XTX_list[i] for i in nonzero_pops], 
+            X_l2_arr = X_l2_arr[nonzero_pops], 
+            rho = rho[nonzero_pops, :][:, nonzero_pops],
+            residual_variance = residual_variance[nonzero_pops], 
+            return_moments = return_moments, 
             float_type = float_type
         )
         if return_moments:
@@ -993,18 +990,18 @@ def compute_lbf(
         if return_moments:
             try:
                 lbf, post_mean, post_mean2 = compute_lbf_and_moments(
-                    V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-                    residual_variance, float_type = float_type
+                    V = V, XTY = XTY, X_l2_arr = X_l2_arr, rho = rho,
+                    residual_variance = residual_variance, float_type = float_type
                 )
             except:
                 lbf, post_mean, post_mean2 = compute_lbf_and_moments_safe(
-                    V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-                    residual_variance, float_type = float_type
+                    V = V, XTY = XTY, X_l2_arr = X_l2_arr, rho = rho,
+                    residual_variance = residual_variance, float_type = float_type
                 )
         else:
             lbf = compute_lbf_no_moments(
-                V, XTY, X_l2_arr, rho, inv_rho, logdet_rho,
-                residual_variance, float_type = float_type
+                V = V, XTY = XTY, X_l2_arr = X_l2_arr, rho = rho,
+                residual_variance = residual_variance, float_type = float_type
             )
     if return_moments:
         return lbf, post_mean, post_mean2
@@ -1013,8 +1010,7 @@ def compute_lbf(
 
 @numba.jit(nopython=True, cache=False)
 def compute_lbf_no_moments(
-    V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
-    residual_variance, float_type = np.float32):
+    V, XTY, X_l2_arr, rho, residual_variance, float_type = np.float32):
     
     
     num_pops = XTY.shape[1]
@@ -1053,7 +1049,7 @@ def compute_lbf_no_moments(
 
 @numba.jit(nopython=True, cache=False)
 def compute_lbf_and_moments(
-    V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
+    V, XTY, X_l2_arr, rho,
     residual_variance, float_type = np.float32):
 
     num_pops = XTY.shape[1]
@@ -1098,7 +1094,7 @@ def compute_lbf_and_moments(
     return lbf, post_mean, post_mean2
 
 def compute_lbf_and_moments_safe(
-    V, XTY, X_l2_arr, rho, inv_rho, logdet_rho, 
+    V, XTY, X_l2_arr, rho,
     residual_variance, float_type = np.float32):
 
     num_pops = XTY.shape[1]

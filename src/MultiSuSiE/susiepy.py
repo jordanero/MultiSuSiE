@@ -9,7 +9,7 @@ from scipy.optimize import minimize_scalar
 from . import susiepy_ss
 
 #TODO:
-# - implement population specific effect priors
+# - implement early_EM
 
 
 class S:
@@ -20,7 +20,8 @@ class S:
         p = X_std_list[0].shape[1]
         self.alpha = np.zeros((L, p), dtype=float_type) + 1.0/p
         self.mu = np.zeros((num_pop, L, p), dtype=float_type)
-        self.mu2 = np.zeros((num_pop, L, p), dtype=float_type)
+        #self.mu2 = np.zeros((num_pop, L, p), dtype=float_type)
+        self.mu2 = np.zeros((num_pop, num_pop, L, p), dtype=float_type)
         self.Xr_list = [np.zeros(X.shape[0], dtype=float_type) for X in X_std_list]
         self.sigma2 = residual_variance.astype(float_type)
         ###assert np.isscalar(self.sigma2)
@@ -29,7 +30,7 @@ class S:
         self.n = np.array([X.shape[0] for X in X_std_list])
         
         #code from init_finalize
-        self.V = scaled_prior_variance*varY + np.zeros(L, dtype=float_type)
+        self.V = scaled_prior_variance * varY + np.zeros((num_pop, L), dtype=float_type)
         self.V = self.V.astype(float_type)
         assert np.all(self.V >= 0)
         self.KL = np.zeros(L, dtype=float_type) + np.nan
@@ -52,7 +53,7 @@ def multisusie(
     Y_list, 
     rho, 
     L,
-    scaled_prior_variance = 0.00001,
+    scaled_prior_variance = 0.2,
     prior_weights = None,
     standardize = True,
     residual_variance = None, 
@@ -60,9 +61,9 @@ def multisusie(
     intercept = True,
     estimate_residual_variance = True,
     estimate_prior_variance = True,
-    estimate_prior_method = 'EM',
-    #pop_spec_effect_priors = True,
-    #iter_before_zeroing_effects = 5,
+    estimate_prior_method = 'early_EM',
+    pop_spec_effect_priors = True,
+    iter_before_zeroing_effects = 5,
     prior_tol = 1e-9,
     max_iter = 100,
     residual_variance_upperbound = np.inf,
@@ -115,6 +116,11 @@ def multisusie(
     n_arr = np.array([X.shape[0] for X in X_list], dtype=int)
     w_pop = (n_arr / n_arr.sum()).astype(float_type)
 
+    #compute rho properties
+    rho = rho.astype(float_type)
+    logdet_rho_sign, logdet_rho = np.linalg.slogdet(rho)
+    assert logdet_rho_sign>0
+
     #compute X mean and std
     if intercept:
         cm_arr = np.array([X.mean(axis=0) for X in X_list], dtype=float_type)
@@ -156,9 +162,6 @@ def multisusie(
     
     #compute rho properties
     rho = rho.astype(float_type)
-    inv_rho = la.inv(rho).astype(float_type)
-    logdet_rho_sign, logdet_rho = np.linalg.slogdet(rho)
-    assert logdet_rho_sign>0
     
     #init setup
     p = X_list[0].shape[1]
@@ -183,12 +186,26 @@ def multisusie(
     tqdm_iter = tqdm(list(range(max_iter)), disable=not verbose, file=sys.stdout)
     for i in tqdm_iter:
         tqdm_iter.set_description('iteration %d/%d'%(i+1, max_iter))
-        s = update_each_effect(X_std_list, Y_list, s, X_l2_arr, w_pop,
-        rho, inv_rho, logdet_rho,
-        estimate_prior_variance, estimate_prior_method,
-        verbose=verbose,
-        float_type = float_type,
-        check_null_threshold = check_null_threshold
+
+        if estimate_prior_method == 'early_EM':
+            if i == 0: 
+                current_estimate_prior_method = None
+            else:
+                current_estimate_prior_method = 'early_EM'
+        else:
+            current_estimate_prior_method = estimate_prior_method
+
+        if i < iter_before_zeroing_effects:
+            current_check_null_threshold = -np.inf
+        else:
+            current_check_null_threshold = check_null_threshold
+
+        s = update_each_effect(
+            X_std_list = X_std_list, Y_list = Y_list, s = s, X_l2_arr = X_l2_arr, 
+            w_pop = w_pop, rho = rho, estimate_prior_variance = estimate_prior_variance, 
+            estimate_prior_method = current_estimate_prior_method, verbose=verbose,
+            float_type = float_type, pop_spec_effect_priors = pop_spec_effect_priors,
+            check_null_threshold = current_check_null_threshold
         )
 
         #compute objective before updating residual variance
@@ -226,7 +243,7 @@ def multisusie(
     #zero out everything related to constant variables, just to be on the safe side
     if np.any(is_constant_column):
         s.mu[:, :, is_constant_column] = 0.0
-        s.mu2[:, :, is_constant_column] = 0.0
+        s.mu2[:, :, :, is_constant_column] = 0.0
         s.alpha[:, is_constant_column] = 0.0
         
     if intercept:
@@ -243,7 +260,7 @@ def multisusie(
     s.X_column_scale_factors = csd.copy()
     s.X_column_scale_factors[is_constant_column] = 0.0
     s.coef = np.array([np.sum(s.mu[k] * s.alpha, axis=0) / csd for k in range(len(Y_list))])
-    s.coef_sd = np.array([(np.sqrt(np.sum(s.alpha * s.mu2[k] - (s.alpha*s.mu[k])**2, axis=0)) / csd) for k in range(len(Y_list))])
+    s.coef_sd = np.array([(np.sqrt(np.sum(s.alpha * s.mu2[k, k] - (s.alpha*s.mu[k])**2, axis=0)) / csd) for k in range(len(Y_list))])
 
     s.sets = susiepy_ss.susie_get_cs(
         s, R_list = None, coverage = coverage, min_abs_corr = min_abs_corr,
@@ -284,7 +301,7 @@ def Eloglik(X_std_list, Y_list, s, X_l2_arr):
     """
     result = -0.5 * s.n.dot(np.log(2*np.pi*s.sigma2))
     for i in range(len(Y_list)):
-        result -= 0.5/s.sigma2[i] * get_ER2(X_std_list[i], Y_list[i], s.alpha, s.mu[i], s.mu2[i], s.Xr_list[i], X_l2_arr[i])
+        result -= 0.5/s.sigma2[i] * get_ER2(X_std_list[i], Y_list[i], s.alpha, s.mu[i], s.mu2[i, i], s.Xr_list[i], X_l2_arr[i])
     return result
 
 def get_objective(X_std_list, Y_list, s, X_l2_arr):
@@ -293,10 +310,10 @@ def get_objective(X_std_list, Y_list, s, X_l2_arr):
 def estimate_residual_variance_func(X_std_list, Y_list, s, X_l2_arr, float_type):
     sigma2_arr = np.zeros(len(Y_list), dtype=float_type)
     for i in range(len(Y_list)):
-        sigma2_arr[i] =  get_ER2(X_std_list[i], Y_list[i], s.alpha, s.mu[i], s.mu2[i], s.Xr_list[i], X_l2_arr[i]) / s.n[i]
+        sigma2_arr[i] =  get_ER2(X_std_list[i], Y_list[i], s.alpha, s.mu[i], s.mu2[i, i], s.Xr_list[i], X_l2_arr[i]) / s.n[i]
     return sigma2_arr
 
-def loglik(V, prior_weights, compute_lbf_params):
+def loglik_f(V, prior_weights, compute_lbf_params):
     lbf = compute_lbf(V, *compute_lbf_params)
     maxlbf = np.max(lbf)
     w = np.exp(lbf - maxlbf)
@@ -305,23 +322,29 @@ def loglik(V, prior_weights, compute_lbf_params):
     loglik = maxlbf + np.log(weighted_sum_w)
     return loglik
 
-def optimize_prior_variance(optimize_V, prior_weights, compute_lbf_params=None, alpha=None, post_mean2=None, w_pop=None, check_null_threshold=0, float_type = np.float64):
-    if optimize_V == 'optim':
-        neg_loglik_logscale = lambda lV: -loglik(np.exp(lV), prior_weights, compute_lbf_params)
-        opt_obj = minimize_scalar(neg_loglik_logscale, bounds=(-30,15))
-        lV = opt_obj.x
-        V = np.exp(lV)
-    elif optimize_V == 'EM':
-        V_arr = np.array([np.sum(alpha * post_mean2[i]) for i in range(post_mean2.shape[0])], dtype=float_type)
-        V = (w_pop.dot(V_arr)).astype(float_type)
-    else:
-        raise ValueError('unknown optimization method')
-        
-    # set V exactly 0 if that beats the numerical value by check_null_threshold in loglik.
-    #if check_null_threshold>0:
-    if loglik(0, prior_weights, compute_lbf_params) + check_null_threshold >= loglik(V, prior_weights, compute_lbf_params):
-        V=0
-    return V
+#def optimize_prior_variance(optimize_V, prior_weights, compute_lbf_params=None, alpha=None, post_mean2=None, w_pop=None, check_null_threshold=0, float_type = np.float64):
+#    
+#    if optimize_V == 'optim':
+#        if pop_spec_effect_priors:
+#            raise Exception('estimate_prior_method="optim" with ' +
+#        neg_loglik_logscale = lambda lV: -loglik_f(np.exp(lV), prior_weights, compute_lbf_params)
+#        opt_obj = minimize_scalar(neg_loglik_logscale, bounds=(-30,15))
+#        lV = opt_obj.x
+#        V = np.exp(lV)
+#    elif optimize_V == 'EM':
+#        V_arr = np.array([np.sum(alpha * post_mean2[i]) for i in range(post_mean2.shape[0])], dtype=float_type)
+#        if not pop_spec_effect_priors:
+#            V = (w_pop.dot(V_arr)).astype(float_type)
+#    else:
+#        raise ValueError('unknown optimization method')
+#        
+#    # set V exactly 0 if that beats the numerical value by check_null_threshold in loglik.
+#    #if check_null_threshold>0:
+#    if not pop_spec_effect_priors:
+#
+#    if loglik_f(0, prior_weights, compute_lbf_params) + check_null_threshold >= loglik_f(V, prior_weights, compute_lbf_params):
+#        V=0
+#    return V
     
 def compute_lbf_1pop(V, X_std, Y, X_l2,
         residual_variance,
@@ -349,36 +372,54 @@ def compute_lbf_1pop(V, X_std, Y, X_l2,
     return lbf, post_mean, post_mean2
     
 def compute_lbf(V, Y_list, X_std_list, X_l2_arr,
-        rho, inv_rho, logdet_rho,
+        rho,
         residual_variance,
         return_moments=False,
         verbose=False,
         float_type=np.float64
         ):
 
-    #if there is only one population, use the fast computation or the original SuSiE code
     num_pops = len(Y_list)
-    if num_pops==1:
-        return compute_lbf_1pop(V, X_std_list[0], Y_list[0], X_l2_arr[0], residual_variance[0], return_moments, verbose, float_type)
     
     
     num_variables = X_std_list[0].shape[1]
-    #ll = np.zeros(num_variables)
     lbf = np.zeros(num_variables, dtype=float_type)
     
     if return_moments:
         post_mean = np.zeros((num_pops, num_variables), dtype=float_type)
-        post_mean2 = np.zeros((num_pops, num_variables), dtype=float_type)
-        
-    if not np.isclose(V,0):
+        post_mean2 = np.zeros((num_pops, num_pops, num_variables), dtype=float_type)
 
+    if np.all(np.isclose(V, 0)):
+        pass
+    elif np.any(np.isclose(V, 0)):
+        nonzero_pops = np.flatnonzero(~np.isclose(V, 0))
+        lbf_out = compute_lbf(
+            V = V[nonzero_pops], 
+            Y_list = [Y_list[i] for i in nonzero_pops], 
+            X_std_list = [X_std_list[i] for i in nonzero_pops], 
+            X_l2_arr = X_l2_arr[nonzero_pops], 
+            rho = rho[nonzero_pops, :][:, nonzero_pops], 
+            residual_variance = residual_variance[nonzero_pops], 
+            return_moments = return_moments, 
+            float_type = float_type
+        )
+        if return_moments:
+            post_mean = np.zeros((num_pops, num_variables), dtype=float_type)
+            post_mean2 = np.zeros((num_pops, num_pops, num_variables), dtype=float_type)
+            lbf = lbf_out[0]
+            post_mean[nonzero_pops] = lbf_out[1]
+            post_mean2[np.ix_(nonzero_pops, nonzero_pops)] = lbf_out[2]
+        else:
+            lbf = lbf_out
+
+    else:
         #compute YT_invD_Z = Y.T * inv(D) * Z - i.e., the inner product of Y on all X in each population, scaled by 1/sigma2 for that population
         YT_invD_Z = np.array([Y.dot(X)/sigma2 for Y,X,sigma2 in zip(Y_list, X_std_list, residual_variance)], dtype=float_type)
     
         #compute A (the effects covariance matrix) and its inverse and log-determinant
-        A = rho*V
-        inv_A = inv_rho / V
-        logdetA = logdet_rho + num_pops*np.log(V)
+        A = rho * np.sqrt(np.outer(V, V))
+        inv_A = np.linalg.inv(A)
+        logdet_A_sign, logdetA = np.linalg.slogdet(A)
     
         for i in range(num_variables):
         
@@ -403,7 +444,7 @@ def compute_lbf(V, Y_list, X_std_list, X_l2_arr,
                 AQ = A*Q_diag
                 post_mean[:,i] = A.dot(YT_invD_Z[:,i]) - AQ.dot(inv_Ainv_plus_Q_times_ZT_invD_Y)
                 post_covar_i = A - AQ.dot(A) + AQ.dot(np.linalg.solve(Ainv_plus_Q, AQ.T)) # AQ is symmetric...
-                post_mean2[:,i] = post_mean[:,i]**2 + np.diag(post_covar_i)
+                post_mean2[:,:,i] = np.maximum(post_covar_i + np.outer(post_mean[:,i], post_mean[:,i]), 0)
         
     if return_moments:
         return lbf, post_mean, post_mean2
@@ -411,23 +452,30 @@ def compute_lbf(V, Y_list, X_std_list, X_l2_arr,
         return lbf
         
 def single_effect_regression(Y_list, X_std_list, V, X_l2_arr, w_pop,
-        rho, inv_rho, logdet_rho,
+        rho,
         residual_variance, 
         prior_weights=None,
         optimize_V=None,
         check_null_threshold=0,
+        pop_spec_effect_priors = True,
+        alpha = None,
+        mu2 = None,
         verbose=False,
         float_type = np.float64
         ):
 
     
     #optimize V if needed (V is sigma_0^2 in the paper)
-    compute_lbf_params = (Y_list, X_std_list, X_l2_arr, rho, inv_rho, logdet_rho, residual_variance, False, verbose, float_type)
+    compute_lbf_params = (Y_list, X_std_list, X_l2_arr, rho, residual_variance, False, verbose, float_type)
     if optimize_V not in ['EM', None]:
-        V = optimize_prior_variance(optimize_V, prior_weights, compute_lbf_params=compute_lbf_params, alpha=None, post_mean2=None, w_pop=w_pop, check_null_threshold=check_null_threshold, float_type = float_type)
+        V = susiepy_ss.optimize_prior_variance(
+            optimize_V = optimize_V, prior_weights = prior_weights, num_pops = rho.shape[0], 
+            compute_lbf_params=compute_lbf_params, alpha=alpha, post_mean2=mu2, w_pop=w_pop, 
+            check_null_threshold=check_null_threshold, pop_spec_effect_priors = pop_spec_effect_priors, 
+            float_type = float_type, loglik_function = loglik_f)
         
     #compute lbf (log Bayes-factors)
-    lbf, post_mean, post_mean2 = compute_lbf(V, Y_list, X_std_list, X_l2_arr, rho, inv_rho, logdet_rho, residual_variance, return_moments=True, verbose=verbose)
+    lbf, post_mean, post_mean2 = compute_lbf(V, Y_list, X_std_list, X_l2_arr, rho, residual_variance, return_moments=True, verbose=verbose)
     
     #compute alpha as defined in Appendix A.2
     maxlbf = np.max(lbf)
@@ -441,17 +489,22 @@ def single_effect_regression(Y_list, X_std_list, V, X_l2_arr, w_pop,
     loglik = lbf_model + np.sum([np.sum(stats.norm(0, np.sqrt(sigma2)).logpdf(Y)) for sigma2,Y in zip(residual_variance, Y_list)])
         
     if optimize_V == 'EM':
-        V = optimize_prior_variance(optimize_V, prior_weights, compute_lbf_params=compute_lbf_params, alpha=alpha, post_mean2=post_mean2, w_pop=w_pop, check_null_threshold=check_null_threshold, float_type=float_type)
+        V = susiepy_ss.optimize_prior_variance(
+            optimize_V = optimize_V, prior_weights = prior_weights, num_pops = rho.shape[0],
+            compute_lbf_params=compute_lbf_params, alpha=alpha, post_mean2=post_mean2, w_pop=w_pop, 
+            check_null_threshold=check_null_threshold, pop_spec_effect_priors = pop_spec_effect_priors,
+            float_type=float_type, loglik_function = loglik_f)
         
     res = SER_RESULTS(alpha=alpha, mu=post_mean, mu2=post_mean2, lbf=lbf, lbf_model=lbf_model, V=V, loglik=loglik)
     return res
 
 def update_each_effect(X_std_list, Y_list, s, X_l2_arr, w_pop,
-        rho, inv_rho, logdet_rho,
+        rho,
         estimate_prior_variance=False, 
         estimate_prior_method='optim',
         check_null_threshold=0.0,
         verbose=False,
+        pop_spec_effect_priors = True,
         float_type = np.float64
         ):
 
@@ -459,6 +512,7 @@ def update_each_effect(X_std_list, Y_list, s, X_l2_arr, w_pop,
     if not estimate_prior_variance:
         estimate_prior_method = None
     L = s.alpha.shape[0]
+    num_pop = rho.shape[0]
     
     tqdm_L = tqdm(range(L), disable=not verbose, file=sys.stdout)
     for l in tqdm_L:
@@ -467,22 +521,22 @@ def update_each_effect(X_std_list, Y_list, s, X_l2_arr, w_pop,
         for k in range(len(X_std_list)):
             s.Xr_list[k] -= X_std_list[k].dot(s.alpha[l] * s.mu[k,l])
             R_list.append(Y_list[k] - s.Xr_list[k])
-        res = single_effect_regression(R_list, X_std_list, s.V[l], X_l2_arr, w_pop,
-              rho, inv_rho, logdet_rho,
-              residual_variance=s.sigma2, prior_weights=s.pi,
-              optimize_V=estimate_prior_method,
-              check_null_threshold=check_null_threshold,
-              verbose=verbose,
-              float_type = float_type
-              )
+        res = single_effect_regression(
+            R_list, X_std_list, s.V[:,l], X_l2_arr, w_pop,
+            rho, residual_variance=s.sigma2, prior_weights=s.pi,
+            optimize_V=estimate_prior_method, check_null_threshold=check_null_threshold,
+            pop_spec_effect_priors = pop_spec_effect_priors, verbose=verbose, 
+            alpha = s.alpha[l,:], mu2 = s.mu2[:,:,l,:],
+            float_type = float_type
+        )
               
         # Update the variational estimate of the posterior mean.
         s.mu[:,l,:] = res.mu
         s.alpha[l,:] = res.alpha
-        s.mu2[:,l,:] = res.mu2
-        s.V[l] = res.V
+        s.mu2[:,:,l,:] = res.mu2
+        s.V[:,l] = res.V
         s.lbf[l] = res.lbf_model
-        s.KL[l] = -res.loglik + SER_posterior_e_loglik(X_std_list, R_list, s.sigma2, res.mu * res.alpha, res.mu2 * res.alpha, X_l2_arr, s.n)
+        s.KL[l] = -res.loglik + SER_posterior_e_loglik(X_std_list, R_list, s.sigma2, res.mu * res.alpha, res.mu2[range(num_pop), range(num_pop)] * res.alpha, X_l2_arr, s.n)
         for k in range(len(X_std_list)):
             s.Xr_list[k] += X_std_list[k].dot(s.alpha[l] * s.mu[k,l])
 
@@ -491,7 +545,7 @@ def update_each_effect(X_std_list, Y_list, s, X_l2_arr, w_pop,
         
 def susie_get_pip(s, prior_tol=1e-9):
     if s.has_null_index: s.alpha = s.alpha[:, :-1]
-    include_idx = s.V > prior_tol
+    include_idx = np.any(s.V > prior_tol, axis = 0)
     if not np.any(include_idx):
         return np.zeros(s.alpha.shape[1])
     res = s.alpha[include_idx, :]
