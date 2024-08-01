@@ -25,7 +25,7 @@ pip install . -U
 ### PIP
 
 It may be more convenient to use MultiSuSiE from your an existing conda environment. To do this, you'll need the following dependencies:
-- Python >= 3.6
+- Python >= 3.8
 - numpy >= 1.20
 - scipy >= 1.4.1
 - tqdm 
