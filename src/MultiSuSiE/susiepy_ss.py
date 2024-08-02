@@ -1214,10 +1214,10 @@ def susie_get_cs(
         return ([[] for i in range(len(include_mask))], None, None, include_mask)
 
     if calculate_purity:
-        purity = np.array([get_purity_x(cs[i], R_list, min_abs_corr, n_purity, X_list) if include_mask[i] else np.NaN for i in range(len(cs))])
+        purity = np.array([get_purity_x(cs[i], R_list, min_abs_corr, n_purity, X_list) if include_mask[i] else np.nan for i in range(len(cs))])
         include_mask[purity < min_abs_corr] = False
     else:
-        purity = np.array([np.NaN for i in range(len(cs))])
+        purity = np.array([np.nan for i in range(len(cs))])
 
     return (cs, purity, claimed_coverage, include_mask)
 
