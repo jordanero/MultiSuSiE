@@ -122,10 +122,7 @@ def multisusie(
     assert logdet_rho_sign>0
 
     #compute X mean and std
-    if intercept:
-        cm_arr = np.array([X.mean(axis=0) for X in X_list], dtype=float_type)
-    else:
-        cm_arr = np.zeros((len(X_list), X_list[0].shape[1]), dtype=float_type)
+    cm_arr = np.array([X.mean(axis=0) for X in X_list], dtype=float_type)
     if standardize:
         csd_arr = np.array([X.std(axis=0, ddof=1) for X in X_list], dtype=float_type)
         csd = np.sum(csd_arr * w_pop[:, np.newaxis], axis=0)
