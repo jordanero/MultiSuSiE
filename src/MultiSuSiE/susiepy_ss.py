@@ -78,8 +78,9 @@ def multisusie_rss(
     mac_list = None,
     multi_population_maf_thresh = 0,
     maf_list = None,
+    variant_ids = None
     ):
-    """ Top-level function for running MultiSuSiE
+    """ Top-level function for running MultiSuSiE with summary statistics
 
     This function takes takes standard GWAS summary statistics, converts
     them to sufficient statistics, and runs MultiSuSiE on them.
@@ -161,7 +162,7 @@ def multisusie_rss(
     verbose: boolean which indicates if an progress bar should be displayed
     coverage: float representing the minimum coverage of credible sets
     min_abs_corr: float representing the minimum absolute correlation between
-        any pair of variants in a credible set. For each pair of variants,
+        any pair of variants in a credible set (purity). For each pair of variants,
         the max is taken across ancestries. In the case where min_abs_corr = 0,
         low_memory_mode = True, and recover_R = False, the purity of credible
         sets will not be calculated. 
@@ -195,6 +196,9 @@ def multisusie_rss(
         Hardy-Weinberg equilibrium. 
     maf_list: length K list of floats representing the minor allele frequency for
         each variant in each population. 
+    variant_ids: length P list of strings representing the variant IDs. If 
+        provided, sets will contain a fifth entry, containing the variant ids
+        of the variants contained in each set. 
     
     Returns
     -------
@@ -217,6 +221,15 @@ def multisusie_rss(
         lbf: L x 1 numpy array of log Bayes factors for each single effect 
             regression
         converged: boolean indicating whether the algorithm converged
+        sets: a list with one entry for each estimated credible set. Sets
+            contains four lists. The first contains the indices of the 
+            variants contained in each set. The second contains the purity
+            of each set (see min_abs_corr for calculation details). The 
+            third contains the coverage of each set. The fourth contains
+            whether the set has passed filtering. If variant_ids is 
+            provided, a fifth entry contains the variant ids for the 
+            variants contained in each set. 
+            
 
     TODO
     ----
@@ -404,7 +417,8 @@ def multisusie_rss(
         min_abs_corr = min_abs_corr,
         float_type = float_type,
         low_memory_mode = low_memory_mode,
-        recover_R = recover_R
+        recover_R = recover_R,
+        variant_ids = variant_ids
     )
 
     return s
@@ -492,7 +506,8 @@ def susie_multi_ss(
     min_abs_corr = .5,
     float_type = np.float32,
     low_memory_mode = False,
-    recover_R = False
+    recover_R = False,
+    variant_ids = None
     ):
     """ Run MultiSuSiE on sufficient statistics
 
@@ -718,6 +733,13 @@ def susie_multi_ss(
         dedup = True, n_purity = np.inf, 
         calculate_purity = (not low_memory_mode) or (min_abs_corr > 0) or recover_R
     )
+
+    s.variant_ids = variant_ids
+    if variant_ids is not None:
+        cs_variant_ids = []
+        for i in range(len(s.sets[0])):
+            cs_variant_ids.append([variant_ids[idx] for idx in s.sets[0][i]])
+        s.sets.append(cs_variant_ids)
 
     return s
 
@@ -1219,7 +1241,7 @@ def susie_get_cs(
     else:
         purity = np.array([np.nan for i in range(len(cs))])
 
-    return (cs, purity, claimed_coverage, include_mask)
+    return [cs, purity, claimed_coverage, include_mask]
 
 def in_CS(alpha, coverage):
     return np.apply_along_axis(in_CS_x, 1, alpha, coverage)
