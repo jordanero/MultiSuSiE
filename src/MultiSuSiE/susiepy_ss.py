@@ -221,8 +221,7 @@ def multisusie_rss(
         lbf: L x 1 numpy array of log Bayes factors for each single effect 
             regression
         converged: boolean indicating whether the algorithm converged
-        sets: a list with one entry for each estimated credible set. Sets
-            contains four lists. The first contains the indices of the 
+        sets: a list with four entries. The first contains the indices of the 
             variants contained in each set. The second contains the purity
             of each set (see min_abs_corr for calculation details). The 
             third contains the coverage of each set. The fourth contains
