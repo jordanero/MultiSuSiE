@@ -7,7 +7,7 @@ For details of the method see our [preprint](https://www.medrxiv.org/content/10.
 
 ## Installation
 
-There are 3 ways to install MultiSuSiE. The first two listed below will install a Python package and allow you to call MultiSuSiE via Python or a command line interface (in progress). The third (in progress) will only provide access to the command line interface.
+There are 3 ways to install MultiSuSiE. The first two listed below will install a Python package and allow you to call MultiSuSiE via Python. The third (in progress) will only provide access to the command line interface.
 
 ### Installing into a fresh conda environment
 
