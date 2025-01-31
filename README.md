@@ -52,6 +52,8 @@ The fastest way to get started is probably to check out [the example](https://gi
 - varY_list is a length K representing the sample variance of the outcome in each population.
 - population_sizes is a length K list of integers representing the GWAS sample size of each population.
 
+MultiSuSiE with summary statistics (`multisusie_rss`) runtime and memory requirements can be drastically improved by setting `low_memory_mode = True`. This parameter is not enabled by default because the input summary statistic and LD matrix numpy arrays will be mutated over the course of function evaluation and will not be returned to their initial state. If you understand this, we recommend setting `low_memory_mode = True`.
+
 ## Questions?
 
 Feel free to email jordanerossen@gmail.com with any questions.
