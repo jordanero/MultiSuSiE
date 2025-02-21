@@ -13,7 +13,7 @@ There are 2 ways to install MultiSuSiE. MultiSuSiE is a Python package and does 
 
 The easiest way to install MultiSuSiE is to create a fresh conda environment.
 
-To create a fresh conda environment capable of running multisusie run the following commands:
+To create a fresh conda environment capable of running MultiSuSiE run the following commands:
 ```
 git clone https://github.com/jordanero/MultiSuSiE
 cd MultiSuSiE
@@ -22,9 +22,10 @@ conda activate MultiSuSiE
 pip install . -U
 ```
 
-### PIP
 
-It may be more convenient to use MultiSuSiE from your an existing conda environment. To do this, you'll need the following dependencies:
+### Installing into an existing environment
+
+It may be more convenient to use MultiSuSiE from your an existing conda environment or python virtual environment. To do this, you'll need the following dependencies:
 - Python >= 3.8
 - numpy >= 1.20
 - scipy >= 1.4.1
@@ -38,7 +39,7 @@ To install MultiSuSiE, activate the environment you'd like to install MultiSuSiE
 pip install git+https://github.com/jordanero/MultiSuSiE.git
 ```
 
-We've also added an install script that creates a virtual environment, installs multisusie into the virtual environment, and runs a small example. If you use this approach, you will need to `source MultiSuSiE/multisusie_env/bin/activate` before using MultiSuSiE again. The install script can be run with the following commands 
+We've also added an install script that creates a python virtual environment, installs multisusie into the virtual environment, and runs a small example. If you use this approach, you will need to `source MultiSuSiE/multisusie_env/bin/activate` before using MultiSuSiE again. The install script can be run with the following commands
 ```
 git clone https://github.com/jordanero/MultiSuSiE
 bash MultiSuSiE/install.sh
