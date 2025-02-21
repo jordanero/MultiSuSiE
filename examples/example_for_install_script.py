@@ -1,15 +1,12 @@
 import MultiSuSiE
 import numpy as np
-import sys
 
 print('Testing MultiSuSiE installation...')
 print('Loading genotypes and creating simulated phenotypes')
 
-multisusie_dir = sys.argv[1]
-
-geno_YRI = np.loadtxt(f'{multisusie_dir}/example_data/geno_YRI.txt')
-geno_CEU = np.loadtxt(f'{multisusie_dir}/example_data/geno_CEU.txt')
-geno_JPT = np.loadtxt(f'{multisusie_dir}/example_data/geno_JPT.txt')
+geno_YRI = np.loadtxt('MultiSuSiE/example_data/geno_YRI.txt')
+geno_CEU = np.loadtxt('MultiSuSiE/example_data/geno_CEU.txt')
+geno_JPT = np.loadtxt('MultiSuSiE/example_data/geno_JPT.txt')
 geno_list = [geno_YRI, geno_CEU, geno_JPT]
 
 beta_YRI = np.zeros(40)
