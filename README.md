@@ -43,7 +43,7 @@ pip install . -U
 We've also added an install script that creates a virtual environment, installs multisusie into the virtual environment, and runs a small example. If you use this approach, you will need to `source MultiSuSiE/multisusie_env/bin/activate` before using MultiSuSiE again. The install script can be run with the following commands 
 ```
 git clone https://github.com/jordanero/MultiSuSiE
-bash MultiSuSiE/install_script.sh
+bash MultiSuSiE/install.sh
 ```
 
 ## Running MultiSuSiE
