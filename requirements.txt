@@ -1,0 +1,6 @@
+python_version >= "3.8"
+numpy >= 1.20
+scipy >= 1.4.1
+tqdm
+numba >= 0.51.0
+jupyterlab
