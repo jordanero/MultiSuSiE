@@ -35,9 +35,7 @@ It's posible that you can also get away with using older versions of these packa
 
 To install MultiSuSiE, activate the environment you'd like to install MultiSuSiE into (or don't if you'd like to install MultiSuSiE into your base environment) and run
 ```
-git clone https://github.com/jordanero/MultiSuSiE
-cd MultiSuSiE
-pip install . -U
+pip install git+https://github.com/jordanero/MultiSuSiE.git
 ```
 
 We've also added an install script that creates a virtual environment, installs multisusie into the virtual environment, and runs a small example. If you use this approach, you will need to `source MultiSuSiE/multisusie_env/bin/activate` before using MultiSuSiE again. The install script can be run with the following commands 
