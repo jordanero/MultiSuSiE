@@ -40,6 +40,12 @@ cd MultiSuSiE
 pip install . -U
 ```
 
+We've also added an install script that creates a virtual environment, installs multisusie into the virtual environment, and runs a small example. If you use this approach, you will need to `source MultiSuSiE/multisusie_env/bin/activate` before using MultiSuSiE again. The install script can be run with the following commands 
+```
+git clone https://github.com/jordanero/MultiSuSiE
+bash MultiSuSiE/install_script.sh
+```
+
 ## Running MultiSuSiE
 
 The primary top-level MultiSuSie function is `multisusie_rss`. `multisusie_rss` accepts lists of numpy arrays containing GWAS summary statistics and LD matrices and performs the full fine-mapping algorithm. To see its full documentation, just start a Python session and type `import MultiSuSiE`, then `help(MultiSuSiE.multisusie_rss)`. 
