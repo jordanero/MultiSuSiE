@@ -39,7 +39,7 @@ To install MultiSuSiE, activate the environment you'd like to install MultiSuSiE
 pip install git+https://github.com/jordanero/MultiSuSiE.git
 ```
 
-We've also added an install script that creates a python virtual environment, installs MultiSuSiE into the virtual environment, and runs a small example. You will need Python 3.8+ for this to work. You will need to `source MultiSuSiE/multisusie_env/bin/activate` before using MultiSuSiE. The install script can be run with the following commands
+We've also added an install script that attempts to install the necessary dependencies, install MultiSuSiE, and run an example. The install script can be run with the following commands
 ```
 git clone https://github.com/jordanero/MultiSuSiE
 bash MultiSuSiE/install.sh
