@@ -45,6 +45,8 @@ varY_list = [np.var(y, ddof = 1) for y in y_list]
 
 z_list = [b/s for (b,s) in zip(beta_hat_list, se_list)]
 
+print('Running MultiSuSiE with summary statistics')
+
 ss_fit = MultiSuSiE.multisusie_rss(
     b_list = beta_hat_list,
     s_list = se_list,
@@ -59,6 +61,8 @@ ss_fit = MultiSuSiE.multisusie_rss(
     single_population_mac_thresh = 0,
 )
 
+print('Running MultiSuSiE with individual level data')
+
 indiv_fit = MultiSuSiE.multisusie(
     X_list = [g + 1 for g in geno_list],
     Y_list = y_list,
@@ -68,4 +72,4 @@ indiv_fit = MultiSuSiE.multisusie(
     float_type = np.float64
 )
 print('Summary statistic and individual level fine-mapping have been run successfully')
-print('The maximum difference in PIP between the two methods is {}'.format(np.max(np.abs(ss_fit.pip - indiv_fit.pip))))
+print('The maximum difference in PIP between the two methods is {}. This number should be close to zero'.format(np.max(np.abs(ss_fit.pip - indiv_fit.pip))))
