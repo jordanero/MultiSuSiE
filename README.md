@@ -7,7 +7,7 @@ For details of the method see our [preprint](https://www.medrxiv.org/content/10.
 
 ## Installation
 
-There are 2 ways to install MultiSuSiE. MultiSuSiE is a Python package and does not currently have a command-line interface. We hope to add a command-line interface in the future.
+There are 2 ways to install MultiSuSiE. MultiSuSiE is a Python package and does not have a command-line interface. We hope to add a command-line interface in the future.
 
 ### Installing into a fresh conda environment
 
@@ -32,14 +32,14 @@ It may be more convenient to use MultiSuSiE from your an existing conda environm
 - tqdm 
 - numba >= 0.51.0
 
-It's posible that you can also get away with using older versions of these packages in some cases.
+It's posible that you can get away with using older versions of these packages in some cases.
 
 To install MultiSuSiE, activate the environment you'd like to install MultiSuSiE into (or don't if you'd like to install MultiSuSiE into your base environment) and run
 ```
 pip install git+https://github.com/jordanero/MultiSuSiE.git
 ```
 
-We've also added an install script that attempts to install the necessary dependencies, install MultiSuSiE, and run an example. The install script can be run with the following commands
+We've also added an install script that attempts to install the necessary dependencies (other than Python >= 3.8), install MultiSuSiE, and run an example. The install script can be run with the following commands
 ```
 git clone https://github.com/jordanero/MultiSuSiE
 bash MultiSuSiE/install.sh
