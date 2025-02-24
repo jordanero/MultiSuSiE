@@ -25,7 +25,7 @@ pip install . -U
 
 ### Installing into an existing environment
 
-It may be more convenient to use MultiSuSiE from an existing conda environment or python virtual environment. To do this, you'll need the following dependencies:
+It may be more convenient to use MultiSuSiE in an existing conda environment or python virtual environment. To do this, you'll need the following dependencies:
 - Python >= 3.8
 - numpy >= 1.20
 - scipy >= 1.4.1
