@@ -13,7 +13,7 @@ from . import susiepy_ss
 
 
 class S:
-    def __init__(self, X_std_list, L, scaled_prior_variance, residual_variance, varY, prior_weights, null_weight, float_type):
+    def __init__(self, X_std_list, L, scaled_prior_variance, residual_variance, varY, prior_weights, float_type):
         
         #code from init_setup
         num_pop = len(X_std_list)
@@ -26,7 +26,6 @@ class S:
         self.sigma2 = residual_variance.astype(float_type)
         ###assert np.isscalar(self.sigma2)
         self.pi = prior_weights.astype(float_type)
-        self.has_null_index = (null_weight is not None)
         self.n = np.array([X.shape[0] for X in X_std_list])
         
         #code from init_finalize
@@ -55,10 +54,8 @@ def multisusie(
     L,
     scaled_prior_variance = 0.2,
     prior_weights = None,
-    standardize = True,
+    standardize = False,
     residual_variance = None, 
-    null_weight = None,
-    intercept = True,
     estimate_residual_variance = True,
     estimate_prior_variance = True,
     estimate_prior_method = 'early_EM',
@@ -76,8 +73,68 @@ def multisusie(
     float_type = np.float64,
     low_memory_mode = False,
     calculate_purity = True,
-    n_purity = 100
+    n_purity = 100,
+    variant_ids = None
     ):
+
+    """ Top-level function for running MultiSuSiE with individual level data
+
+    This function takes genotype and phenotype matrices and runs MultiSuSiE on them
+
+    Parameters
+    ----------
+    X_list: Length K list of numpy arrays, one for each population. Rows correspond
+        to samples and the columns correspond to variants. Each array should
+        contain the same set of variants in the same order. Its fine if 
+        some columns are constant. 
+    Y_list: Length K list of one dimensional numpy arrays, one for each population. 
+        Rows correspond to samples. Samples should be in the same order as in 
+        X_list. 
+    rho: PxP numpy array representing the effect size correlation matrix (P is the
+        number of variants). In the manuscript, we show that this parameter has 
+        little impact on the estimated PIPs in practice.
+    L: integer representing the maximum number of causal variants
+    scaled_prior_variance: float representing the effect size prior variance,
+        scaled by the residual variance. It's fine to set this to a number 
+        larger than what you expect the squared effect size to be (like the 
+        default value of 0.2) as long as estimate_prior_variance is set to True
+        and estimate_prior_method is not set to None.
+    prior_weights: numpy P-array of floats representing the prior probability
+        of causality for each variant. Give None to use a uniform prior
+    standardize: boolnea, whether to standardize the genotypes to have
+        variance of 1.
+    residual_variance: Length K numpy array of floats representing the residual
+        variance for each population.
+    estimate_residual_variance: boolean, whether to estimate the residual variance, $\\sigma^2_k$ in the manuscript
+    estimate_prior_variance: boolean, whether to estimate the prior variance,
+        $A^{(l)}$ in the manuscript
+    estimate_prior_method: string, method to estimate the prior variance. Recommended
+        values are 'early_EM' or None
+    pop_spec_effect_priors: boolean, whether to estimate separate prior 
+        variance parameters for each population
+    iter_before_zeroing_effects: integer, number of iterations to run before
+        zeroing out component-population pairs (or components if 
+        pop_spec_effect_priors is False) that have a lower likelihood than a 
+        null model
+    prior_tol: float which places a filter on the minimum prior variance
+        for a component to be included when estimating PIPs
+    max_iter: integer, maximum number of iterations to run
+    residual_variance_upperbound: float, upper bound on the residual variance
+    residual_variance_lowerbound: float, lower bound on the residual variance
+    tol: float, after iter_before_zeroing_effects iterations, results
+        are returned if the ELBO increases by less than tol in an ieration
+    verbose: boolean which indicates if the objective function should be printed
+    coverage: float representing the minimum coverage of credible sets
+    min_abs_corr: float representing the minimum absolute correlation between
+        any pair of variants in a credible set (purity). For each pair of variants,
+        the max is taken across ancestries. In the case where min_abs_corr = 0,
+        low_memory_mode = True, and recover_R = False, the purity of credible
+        sets will not be calculated. 
+    variant_ids: length P list of strings representing the variant IDs. If 
+        provided, sets will contain a fifth entry, containing the variant ids
+        of the variants contained in each set. 
+
+    """
 
     t0 = time.time()
     #check input
@@ -87,18 +144,6 @@ def multisusie(
     if prior_weights is not None:
         prior_weights = prior_weights.astype(float_type)
     
-    if null_weight is not None:
-        assert 0<=null_weight<1
-        if null_weight==0:
-            null_weight = None
-        else:
-            if prior_weights is None:
-                prior_weights = (1-null_weight)/X_list[0].shape[1] + np.zeros(X_list[0].shape[1]+1, dtype=float_type)
-                prior_weights[-1] = null_weight
-            else:
-                prior_weights = prior_weights * (1-null_weight)
-                prior_weights = np.concatenate((prior_weights, [null_weight]))
-            X_list = [np.concatenate((X, np.zeros((X.shape[0], 1), dtype=float_type)), axis=1) for X in X_list]
     assert not np.any([np.any(np.isnan(X)) for X in X_list])
     
     #remove missing individuals
@@ -107,10 +152,9 @@ def multisusie(
             X_list[i] = X_list[i][~np.isnan(Y_list[i])]
             Y_list[i] = Y_list[i][~np.isnan(Y_list[i])]
         
-    #center and scale Y
-    if intercept:
-        mean_y_list = [Y.mean() for Y in Y_list]
-        Y_list = [Y-mean_Y for Y,mean_Y in zip(Y_list, mean_y_list)]
+    #center Y
+    mean_y_list = [Y.mean() for Y in Y_list]
+    Y_list = [Y-mean_Y for Y,mean_Y in zip(Y_list, mean_y_list)]
         
     #compute w_pop (the relative size of each population)
     n_arr = np.array([X.shape[0] for X in X_list], dtype=int)
@@ -122,10 +166,7 @@ def multisusie(
     assert logdet_rho_sign>0
 
     #compute X mean and std
-    if intercept:
-        cm_arr = np.array([X.mean(axis=0) for X in X_list], dtype=float_type)
-    else:
-        cm_arr = np.zeros((len(X_list), X_list[0].shape[1]), dtype=float_type)
+    cm_arr = np.array([X.mean(axis=0) for X in X_list], dtype=float_type)
     if standardize:
         csd_arr = np.array([X.std(axis=0, ddof=1) for X in X_list], dtype=float_type)
         csd = np.sum(csd_arr * w_pop[:, np.newaxis], axis=0)
@@ -177,7 +218,7 @@ def multisusie(
         prior_weights = (prior_weights / np.sum(prior_weights)).astype(float_type)
     assert prior_weights.shape[0] == p
     if p<L: L=p
-    s = S(X_std_list, L, scaled_prior_variance, residual_variance, varY, prior_weights, null_weight, float_type = float_type)
+    s = S(X_std_list, L, scaled_prior_variance, residual_variance, varY, prior_weights, float_type = float_type)
     elbo = np.zeros(max_iter+1) + np.nan
     elbo[0] = -np.inf
     
@@ -246,15 +287,8 @@ def multisusie(
         s.mu2[:, :, :, is_constant_column] = 0.0
         s.alpha[:, is_constant_column] = 0.0
         
-    if intercept:
-        s.intercept = np.array(mean_y_list)
-        s.fitted = []
-        for k in range(len(X_list)):
-            s.intercept[k] -= cm_arr[k].dot(np.sum(s.alpha*s.mu[k] / csd, axis=0))
-            s.fitted.append(s.Xr_list[k] + mean_y_list[k])
-    else:
-        s.intercept = np.zeros(len(X_list))
-        s.fitted = s.Xr_list
+    s.intercept = np.zeros(len(X_list))
+    s.fitted = s.Xr_list
         
     s.pip = susie_get_pip(s, prior_tol=prior_tol)    
     s.X_column_scale_factors = csd.copy()
@@ -267,7 +301,14 @@ def multisusie(
         dedup = True, n_purity = n_purity, calculate_purity = calculate_purity,
         X_list = X_std_list
     )
-    
+
+    s.variant_ids = variant_ids
+    if variant_ids is not None:
+        cs_variant_ids = []
+        for i in range(len(s.sets[0])):
+            cs_variant_ids.append([variant_ids[idx] for idx in s.sets[0][i]])
+        s.sets.append(cs_variant_ids)
+
     return s
 
 
@@ -544,7 +585,6 @@ def update_each_effect(X_std_list, Y_list, s, X_l2_arr, w_pop,
     return s
         
 def susie_get_pip(s, prior_tol=1e-9):
-    if s.has_null_index: s.alpha = s.alpha[:, :-1]
     include_idx = np.any(s.V > prior_tol, axis = 0)
     if not np.any(include_idx):
         return np.zeros(s.alpha.shape[1])
