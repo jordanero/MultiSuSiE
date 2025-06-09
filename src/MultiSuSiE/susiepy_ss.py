@@ -1,7 +1,6 @@
 import numpy as np
 from tqdm import tqdm
 import scipy.linalg as la
-import time
 import sys
 import numba
 import copy
@@ -118,7 +117,7 @@ def multisusie_rss(
         standard errors, one for each population. Each array should correspond
         to the same set of P variants, in the same order. Variants that should
         not be included in a given population due to low MAF can be assigned a
-        value of np.nan.Provide exactly one of (b_list and s_list) and z_list.
+        value of np.nan. Provide exactly one of (b_list and s_list) and z_list.
     z_list: length K list of length P numpy arrays containing Z-scores, one for
         each population. Each array should correspond to the same set of P
         variants, in the same order. Variants that should not be included in a
@@ -199,6 +198,8 @@ def multisusie_rss(
     Returns
     -------
     an object containing results with the following attributes:
+        pip: length-P numpy array of posterior inclusion probabilities
+        sets: 
         alpha: L x P numpy array of single-effect regression posterior 
             inclusion probabilities
         mu: K x L x P numpy array of single-effect regression effect size
@@ -305,15 +306,15 @@ def multisusie_rss(
     if z_list is None:
         for i in range(K):
             # this function mutates R_list_copy[i]
-            XTX, XTY = recover_XTX_and_XTY(
+            XTY = recover_XTX_and_XTY(
                 b = b_list_copy[i],
                 s = s_list_copy[i],
                 R = R_list_copy[i],
                 YTY = YTY_list[i],
                 n = population_sizes[i]
             )
-            XTX_list.append(XTX)
             XTY_list.append(XTY)
+        XTX_list = R_list_copy
     else:
         for i in range(K):
             # this function mutates R_list_copy[i]
@@ -411,6 +412,8 @@ def multisusie_rss(
 
 susie_multi_rss = multisusie_rss
 
+
+@numba.jit(nopython=True, cache=True)
 def recover_XTX_and_XTY(b, s, R, YTY, n):
     """ Recover XTX and XTY from GWAS summary statistics. INPUT R IS MUTATED 
 
@@ -441,7 +444,7 @@ def recover_XTX_and_XTY(b, s, R, YTY, n):
     R *=  np.sqrt(dR)
     np.nan_to_num(R, copy = False)
 
-    return(R, XTY)
+    return XTY
 
 def recover_XTX_and_XTY_from_Z(z, R, n, float_type = np.float32):
     """ Recover XTX and XTY from z scores and LD correlation matrix
@@ -679,9 +682,7 @@ def susie_multi_ss(
 
         # update the ELBO and check for convergence
         elbo[i+1] = get_objective(XTX_list, XTY_list, s, YTY_list, X_l2_arr)
-        if verbose:
-            print('objective: %s'%(elbo[i+1]))
-
+        tqdm_iter.set_postfix(objective="{:.6f}".format(elbo[i]))
         if ((elbo[i+1] - elbo[i]) < tol) and (i >= (iter_before_zeroing_effects + 1)):
             s.converged = True
             tqdm_iter.close()
@@ -1008,7 +1009,7 @@ def compute_lbf(
     else:
         return lbf
 
-@numba.jit(nopython=True, cache=False)
+@numba.jit(nopython=True, cache=True)
 def compute_lbf_no_moments(
     V, XTY, X_l2_arr, rho, residual_variance, float_type = np.float32):
     
@@ -1047,7 +1048,7 @@ def compute_lbf_no_moments(
         
     return lbf
 
-@numba.jit(nopython=True, cache=False)
+@numba.jit(nopython=True, cache=True)
 def compute_lbf_and_moments(
     V, XTY, X_l2_arr, rho,
     residual_variance, float_type = np.float32):
@@ -1158,7 +1159,7 @@ def update_ER2(XTX_list, XTY_list, YTY_list, s, X_l2_arr):
 
 def get_ER2(XTX, XTY, YTY, alpha, mu, mu2, X_l2):
     B = alpha * mu # beta should be lxp
-    XB2 = np.sum(B.T * np.dot(XTX, B.T))
+    XB2 = np.sum(np.dot(B, XTX) * B)
     betabar = np.sum(B, axis = 0)
     postb2 = alpha * mu2
 

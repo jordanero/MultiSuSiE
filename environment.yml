@@ -7,9 +7,10 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.8
+  - python>=3.8
   - numpy>=1.20
   - scipy>=1.4.1
   - numba>=0.51.2
   - tqdm
   - jupyterlab
+  - intel-cmplr-lib-rt
