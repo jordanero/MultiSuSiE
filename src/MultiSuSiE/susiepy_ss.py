@@ -206,7 +206,7 @@ def multisusie_rss(
         coef: K x P numpy array of posterior effect size estimates for 
             each variant in each population, aggregated across
             all L single effect regressions.
-        se: K x P numpy array of posterior effect size standard errors
+        coef_sd: K x P numpy array of posterior effect size standard deviations
             for each variant in each population, aggregated across
             all L single effect regressions.
         sets: a list with four entries. The first contains the indices of the 
