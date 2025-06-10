@@ -203,7 +203,19 @@ def multisusie_rss(
     -------
     an object containing results with the following attributes:
         pip: length-P numpy array of posterior inclusion probabilities
-        sets: 
+        coef: K x P numpy array of posterior effect size estimates for 
+            each variant in each population, aggregated across
+            all L single effect regressions.
+        se: K x P numpy array of posterior effect size standard errors
+            for each variant in each population, aggregated across
+            all L single effect regressions.
+        sets: a list with four entries. The first contains the indices of the 
+            variants contained in each set. The second contains the purity
+            of each set (see min_abs_corr for calculation details). The 
+            third contains the coverage of each set. The fourth contains
+            whether the set has passed filtering. If variant_ids is 
+            provided, a fifth entry contains the variant ids for the 
+            variants contained in each set. 
         alpha: L x P numpy array of single-effect regression posterior 
             inclusion probabilities
         mu: K x L x P numpy array of single-effect regression effect size
@@ -222,13 +234,9 @@ def multisusie_rss(
         lbf: L x 1 numpy array of log Bayes factors for each single effect 
             regression
         converged: boolean indicating whether the algorithm converged
-        sets: a list with four entries. The first contains the indices of the 
-            variants contained in each set. The second contains the purity
-            of each set (see min_abs_corr for calculation details). The 
-            third contains the coverage of each set. The fourth contains
-            whether the set has passed filtering. If variant_ids is 
-            provided, a fifth entry contains the variant ids for the 
-            variants contained in each set. 
+        niter: integer representing the number of IBSS iterations required
+            to reach convergence
+
             
 
     TODO
@@ -425,8 +433,6 @@ def multisusie_rss(
 
 susie_multi_rss = multisusie_rss
 
-
-@numba.jit(nopython=True, cache=True)
 def recover_XTX_and_XTY(b, s, R, YTY, n):
     """ Recover XTX and XTY from GWAS summary statistics. INPUT R IS MUTATED 
 

@@ -8,9 +8,11 @@ channels:
   - defaults
 dependencies:
   - python>=3.8
-  - numpy>=1.20
+  - numpy >=1.20,<2.3
   - scipy>=1.4.1
   - numba>=0.51.2
   - tqdm
   - jupyterlab
   - intel-cmplr-lib-rt
+  - pandas
+  - pyarrow
