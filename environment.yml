@@ -13,6 +13,6 @@ dependencies:
   - numba>=0.51.2
   - tqdm
   - jupyterlab
-  - intel-cmplr-lib-rt
   - pandas
   - pyarrow
+  #  - intel-cmplr-lib-rt
