@@ -205,7 +205,9 @@ def multisusie_rss(
         pip: length-P numpy array of posterior inclusion probabilities
         coef: K x P numpy array of posterior effect size estimates for 
             each variant in each population, aggregated across
-            all L single effect regressions.
+            all L single effect regressions. These effects are not 
+            conditional on each variant being a causal variant and thus
+            account for uncertainty in the causal variant assignment.
         coef_sd: K x P numpy array of posterior effect size standard deviations
             for each variant in each population, aggregated across
             all L single effect regressions.
@@ -976,7 +978,6 @@ def optimize_prior_variance(
         V = 0
 
     return V
-
 
 def compute_lbf(
     V, XTY_list, XTX_list, X_l2_arr, rho,
