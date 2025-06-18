@@ -74,4 +74,4 @@ MultiSuSiE with summary statistics (`multisusie_rss`) runtime and memory require
 
 ## Questions?
 
-Feel free to email jordanerossen@gmail.com with any questions.
+Feel free to open an issue on GitHub (preferred) or email jordanerossen@gmail.com.
