@@ -12,4 +12,5 @@ dependencies:
   - scipy>=1.4.1
   - numba>=0.51.2
   - tqdm
-  - jupyterlab
+  - jupyterlab # only required for the example, feel free to drop
+  - pandas # only required for the example, feel free to drop
