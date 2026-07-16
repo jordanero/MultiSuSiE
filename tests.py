@@ -74,7 +74,6 @@ ss_fit = MultiSuSiE.multisusie_rss(
     varY_list=varY_list,
     population_sizes=N_list,
     low_memory_mode=False,
-    recover_R=False,
     single_population_mac_thresh=0,
     **common_multisusie_kwargs,
 )
