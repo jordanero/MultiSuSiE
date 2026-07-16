@@ -71,7 +71,6 @@ ss_fit = MultiSuSiE.multisusie_rss(
     population_sizes=N_list,
     L=10,
     low_memory_mode=False,
-    recover_R=False,
     float_type=np.float64,
     single_population_mac_thresh=0,
 )
