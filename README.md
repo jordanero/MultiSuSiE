@@ -85,6 +85,15 @@ When running MultiSuSiE on binary traits, we recommend providing `b_list`, `s_li
 
 Feel free to open an issue on GitHub (preferred) or email jordanerossen@gmail.com.
 
+## Numerical precision and convergence
+
+RSS defaults to `float_type=np.float64`; explicit float32 remains available
+and uses about half the array memory. Posterior moments use direct precision
+solves to avoid cancellation. Both APIs require a finite `0 <= ELBO change < tol`,
+matching [updated SuSiE](https://github.com/stephenslab/susieR/blob/9c406e785ad002a5121cb79acd1fedd4ece10173/R/model_methods.R).
+ELBO decreases do not trigger convergence; fitting can continue to `max_iter`.
+Numerical stability does not correct LD mismatch or establish global optimality.
+
 ## Development checks
 
 To run the same quality checks locally that run in CI:

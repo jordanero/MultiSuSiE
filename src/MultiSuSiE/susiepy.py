@@ -128,8 +128,8 @@ def multisusie(
     max_iter: integer, maximum number of iterations to run
     residual_variance_upperbound: float, upper bound on the residual variance
     residual_variance_lowerbound: float, lower bound on the residual variance
-    tol: float, after iter_before_zeroing_effects iterations, results
-        are returned if the ELBO increases by less than tol in an iteration
+    tol: float, results are returned if 0 <= ELBO change < tol,
+        matching updated SuSiE.
     verbose: boolean which indicates if the objective function should be printed
     coverage: float representing the minimum coverage of credible sets
     min_abs_corr: float representing the minimum absolute correlation between
@@ -316,7 +316,8 @@ def multisusie(
             logging.info("objective: %s" % (elbo[i + 1]))
             print("objective: %s" % (elbo[i + 1]))
 
-        if (elbo[i + 1] - elbo[i]) < tol:
+        delta = elbo[i + 1] - elbo[i]
+        if np.isfinite(delta) and 0 <= delta < tol:
             s.converged = True
             tqdm_iter.close()
             break
@@ -588,13 +589,11 @@ def compute_lbf(
 
             # compute posterior moments for this variable
             if return_moments:
-                AQ = A * Q_diag
-                post_mean[:, i] = A.dot(YT_invD_Z[:, i]) - AQ.dot(
-                    inv_Ainv_plus_Q_times_ZT_invD_Y
+                # Avoid cancellation in the equivalent expanded identities.
+                post_mean[:, i] = inv_Ainv_plus_Q_times_ZT_invD_Y
+                post_covar_i = np.linalg.solve(
+                    Ainv_plus_Q, np.eye(num_pops, dtype=float_type)
                 )
-                post_covar_i = (
-                    A - AQ.dot(A) + AQ.dot(np.linalg.solve(Ainv_plus_Q, AQ.T))
-                )  # AQ is symmetric...
                 post_mean2[:, :, i] = np.maximum(
                     post_covar_i + np.outer(post_mean[:, i], post_mean[:, i]), 0
                 )
