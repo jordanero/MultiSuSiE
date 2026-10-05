@@ -77,7 +77,7 @@ def multisusie_rss(
     verbose: bool = False,
     coverage: float = 0.95,
     min_abs_corr: float = 0,
-    float_type: type = np.float32,
+    float_type: type = np.float64,
     low_memory_mode: bool = False,
     single_population_mac_thresh: float = 20,
     mac_list: list[np.ndarray] | None = None,
@@ -164,7 +164,7 @@ def multisusie_rss(
         for a component to be included when estimating PIPs
     max_iter: integer, maximum number of iterations to run
     tol: float, after iter_before_zeroing_effects iterations, results
-        are returned if the ELBO increases by less than tol in an iteration
+        are returned if 0 <= ELBO change < tol, matching updated SuSiE.
     verbose: boolean which indicates if an progress bar should be displayed
     coverage: float representing the minimum coverage of credible sets
     min_abs_corr: float representing the minimum absolute correlation between
@@ -172,8 +172,8 @@ def multisusie_rss(
         the max is taken across ancestries. In the case where min_abs_corr = 0
         and low_memory_mode = True, the purity of credible sets will not be
         calculated.
-    float_type: numpy float type used. Set to np.float32 to minimize memory
-        consumption
+    float_type: numpy float type used (default np.float64). Set to np.float32
+        to minimize memory consumption.
     low_memory_mode: boolean. If True, the input R_list may be modified in
         place to reduce memory consumption. This can change the provided numpy
         arrays after multisusie_rss is complete. If you need R_list unchanged
@@ -544,7 +544,7 @@ def susie_multi_ss(
     R_list: list[np.ndarray] | None = None,
     coverage: float = 0.95,
     min_abs_corr: float = 0.5,
-    float_type: type = np.float32,
+    float_type: type = np.float64,
     low_memory_mode: bool = False,
     variant_ids: list[str] | None = None,
 ) -> S:
@@ -592,7 +592,7 @@ def susie_multi_ss(
         for a component to be included when estimating PIPs
     max_iter: integer, maximum number of iterations to run
     tol: float, after iter_before_zeroing_effects iterations, results
-        are returned if the ELBO increases by less than tol in an iteration
+        are returned if 0 <= ELBO change < tol, matching updated SuSiE.
     verbose: boolean which indicates if an progress bar should be displayed
     R_list: length K list of PxP numpy arrays representing the LD correlation.
         If None and min_abs_corr > 0 in low_memory_mode, purity cannot be
@@ -602,8 +602,8 @@ def susie_multi_ss(
         any pair of variants in a credible set. For each pair of variants,
         the max is taken across ancestries. In the case where min_abs_corr = 0
         and low_memory_mode = True, purity of credible sets is not calculated.
-    float_type: numpy float type used. Set to np.float32 to minimize memory
-        consumption
+    float_type: numpy float type used (default np.float64). Set to np.float32
+        to minimize memory consumption.
     low_memory_mode: boolean. If True, input arrays in XTX_list may be modified
         in place to reduce memory consumption. This can change the provided
         numpy arrays after susie_multi_ss is complete.
@@ -783,7 +783,12 @@ def susie_multi_ss(
         # update the ELBO and check for convergence
         elbo[i + 1] = get_objective(XTX_list, XTY_list, s, YTY_list, X_l2_arr)
         tqdm_iter.set_postfix(objective="{:.6f}".format(elbo[i]))
-        if ((elbo[i + 1] - elbo[i]) < tol) and (i >= (iter_before_zeroing_effects + 1)):
+        delta = elbo[i + 1] - elbo[i]
+        if (
+            np.isfinite(delta)
+            and 0 <= delta < tol
+            and i >= (iter_before_zeroing_effects + 1)
+        ):
             s.converged = True
             tqdm_iter.close()
             break
@@ -1325,11 +1330,10 @@ def compute_lbf_and_moments(
         lbf[i] = lbf_1 + lbf_2
 
         # compute posterior moments for this variable
-        AQ = A * Q_diag
-        post_mean[:, i] = A.dot(YT_invD_Z[i, :]) - AQ.dot(
-            inv_Ainv_plus_Q_times_ZT_invD_Y
-        )
-        post_covar_i = A - AQ.dot(A) + AQ.dot(np.linalg.solve(Ainv_plus_Q, AQ.T))
+        # C = (A^-1 + Q)^-1 and m = C t. The expanded identities
+        # subtract large terms and lose precision when information is high.
+        post_mean[:, i] = inv_Ainv_plus_Q_times_ZT_invD_Y
+        post_covar_i = np.linalg.solve(Ainv_plus_Q, np.eye(num_pops, dtype=float_type))
         post_mean2[:, :, i] = np.maximum(
             post_covar_i + np.outer(post_mean[:, i], post_mean[:, i]), 0
         )
@@ -1374,11 +1378,8 @@ def compute_lbf_and_moments_safe(
         lbf[i] = lbf_1 + lbf_2
 
         # compute posterior moments for this variable
-        AQ = A * Q_diag
-        post_mean[:, i] = A.dot(YT_invD_Z[i, :]) - AQ.dot(
-            inv_Ainv_plus_Q_times_ZT_invD_Y
-        )
-        post_covar_i = A - AQ.dot(A) + AQ.dot(np.linalg.solve(Ainv_plus_Q, AQ.T))
+        post_mean[:, i] = inv_Ainv_plus_Q_times_ZT_invD_Y
+        post_covar_i = np.linalg.solve(Ainv_plus_Q, np.eye(num_pops, dtype=float_type))
         post_mean2[:, :, i] = post_covar_i + np.outer(post_mean[:, i], post_mean[:, i])
 
     return lbf, post_mean, post_mean2
